@@ -1,131 +1,122 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import time
-import feedparser
-from textblob import TextBlob
-import ta  # technische Indikatoren
-
-st.set_page_config(page_title="Trading Watchlist", layout="wide")
+import numpy as np
+import datetime
+import altair as alt
+from streamlit_autorefresh import st_autorefresh
 
 # -----------------------------
-# Watchlist
+# Sidebar Setup
 # -----------------------------
-watchlist = ["AAPL", "MSFT", "GOOGL", "AMZN", "RHM.DE"]  # gültige Symbole
-interval = 10  # Sekunden zwischen Updates
+st.sidebar.title("Watchlist Einstellungen")
+
+# Watchlist Symbole
+watchlist = st.sidebar.text_area(
+    "Symbole (getrennt durch Komma)", 
+    value="AAPL,MSFT,GOOGL,TSLA"
+).upper().replace(" ", "").split(",")
+
+# Timeframe & Period
+timeframe = st.sidebar.selectbox("Timeframe", ["1d", "1h", "30m", "15m"])
+period = st.sidebar.selectbox("Period", ["7d", "14d", "1mo", "3mo"])
+
+# Auto-refresh Intervall
+refresh_interval = st.sidebar.number_input(
+    "Auto Refresh (Sekunden)", min_value=10, value=60, step=10
+)
+
+# Download CSV Button
+download_csv = st.sidebar.button("Download aktuelle Daten")
 
 # -----------------------------
-# Stop/Start Buttons
+# Daten abrufen
 # -----------------------------
-stop_flag = st.session_state.get("stop_flag", False)
-stop_placeholder = st.empty()
-start_placeholder = st.empty()
+@st.cache_data(ttl=60)
+def fetch_data(symbols, period="7d", interval="1h"):
+    all_data = {}
+    for symbol in symbols:
+        try:
+            df = yf.download(symbol, period=period, interval=interval, progress=False)
+            df['Symbol'] = symbol
+            all_data[symbol] = df
+        except Exception as e:
+            st.warning(f"Fehler bei {symbol}: {e}")
+    return all_data
 
-if stop_placeholder.button("Stop Analyse", key="stop_button"):
-    stop_flag = True
-    st.session_state["stop_flag"] = True
-    st.warning("Analyse gestoppt!")
-
-if start_placeholder.button("Starte Analyse", key="start_button"):
-    stop_flag = False
-    st.session_state["stop_flag"] = False
-    st.success("Analyse gestartet!")
-
-# -----------------------------
-# Funktion: Yahoo-Daten holen
-# -----------------------------
-def get_stock_data(symbol):
-    try:
-        df = yf.download(symbol, period="2y", interval="1d")
-        if df.empty:
-            return None
-        # Technische Indikatoren
-        df["RSI"] = ta.momentum.RSIIndicator(df["Close"]).rsi()
-        df["EMA20"] = ta.trend.EMAIndicator(df["Close"], window=20).ema_indicator()
-        df["EMA50"] = ta.trend.EMAIndicator(df["Close"], window=50).ema_indicator()
-        df["EMA200"] = ta.trend.EMAIndicator(df["Close"], window=200).ema_indicator()
-        df["ATR"] = ta.volatility.AverageTrueRange(df["High"], df["Low"], df["Close"]).average_true_range()
-        return df
-    except Exception as e:
-        st.error(f"Fehler bei {symbol}: {e}")
-        return None
+data_dict = fetch_data(watchlist, period=period, interval=timeframe)
 
 # -----------------------------
-# Funktion: News Sentiment
+# Signale berechnen
 # -----------------------------
-def get_sentiment(symbol):
-    rss_url = "https://www.finanzen.net/rss/aktien"
-    feed = feedparser.parse(rss_url)
-    scores = []
-    for entry in feed.entries:
-        if symbol in entry.title:
-            scores.append(TextBlob(entry.title).sentiment.polarity)
-    if scores:
-        return round(sum(scores)/len(scores)*100,2)
-    else:
-        return 0
+def compute_signals(df):
+    df = df.copy()
+    df["MA10"] = df["Close"].rolling(10).mean()
+    df["MA20"] = df["Close"].rolling(20).mean()
+    df["Signal"] = np.where(df["MA10"] > df["MA20"], "BUY", "SELL")
+    return df
+
+df_list = []
+for sym, df in data_dict.items():
+    df_signal = compute_signals(df)
+    df_signal["Symbol"] = sym
+    df_list.append(df_signal)
+
+df_results = pd.concat(df_list)
+df_results = df_results.reset_index()  # Datum als Spalte
 
 # -----------------------------
-# Ergebnisse vorbereiten
-# -----------------------------
-results = []
-for symbol in watchlist:
-    df = get_stock_data(symbol)
-    if df is None:
-        continue
-    sentiment = get_sentiment(symbol)
-    latest_close = df["Close"].iloc[-1]
-    
-    # Beispiel-Signal Logik (kann angepasst werden)
-    if df["RSI"].iloc[-1] < 30:
-        signal = "Starkes Kaufsignal"
-    elif df["RSI"].iloc[-1] < 50:
-        signal = "Kauf"
-    elif df["RSI"].iloc[-1] < 70:
-        signal = "Beobachten"
-    else:
-        signal = "Verkaufssignal"
-    
-    results.append({
-        "Ticker": symbol,
-        "Letzter Kurs": latest_close,
-        "RSI": round(df["RSI"].iloc[-1],2),
-        "EMA20": round(df["EMA20"].iloc[-1],2),
-        "EMA50": round(df["EMA50"].iloc[-1],2),
-        "EMA200": round(df["EMA200"].iloc[-1],2),
-        "ATR": round(df["ATR"].iloc[-1],2),
-        "Sentiment %": sentiment,
-        "Signal": signal
-    })
-
-df_results = pd.DataFrame(results)
-
-# -----------------------------
-# Signalfarben
+# Styling & Ausgabe
 # -----------------------------
 def style_signal(val):
-    if val == "Starkes Kaufsignal":
-        return 'background-color: lightgreen'
-    elif val == "Kauf":
-        return 'background-color: green'
-    elif val == "Beobachten":
-        return 'background-color: yellow'
-    elif val == "Neutral / Vorsicht":
-        return 'background-color: orange'
-    elif val == "Verkaufssignal":
-        return 'background-color: red'
-    else:
-        return ''
+    color = ""
+    if val == "BUY":
+        color = "green"
+    elif val == "SELL":
+        color = "red"
+    return f"background-color: {color}; color:white; font-weight:bold"
+
+st.title("📊 Trading Watchlist")
+st.dataframe(df_results.style.applymap(style_signal, subset=["Signal"]))
 
 # -----------------------------
-# Ausgabe
+# Chart pro Symbol
 # -----------------------------
-st.dataframe(df_results.style.map(style_signal, subset=["Signal"]))
+st.subheader("📈 Chart")
+symbol_to_plot = st.selectbox("Symbol für Chart", watchlist)
+if symbol_to_plot in data_dict:
+    df_chart = data_dict[symbol_to_plot].reset_index()
+    chart = alt.Chart(df_chart).mark_line().encode(
+        x='Datetime:T',
+        y='Close:Q'
+    ).properties(width=700, height=400)
+    st.altair_chart(chart)
 
 # -----------------------------
-# Live Update
+# CSV Download
 # -----------------------------
-while not stop_flag:
-    st.info("Analyse läuft...")
-    time.sleep(interval)
-    break  # Entfernen, um dauerhaft laufen zu lassen
+if download_csv:
+    csv = df_results.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Download CSV",
+        data=csv,
+        file_name="watchlist_data.csv",
+        mime="text/csv"
+    )
+
+# -----------------------------
+# Auto Refresh
+# -----------------------------
+st_autorefresh(interval=refresh_interval * 1000, key="watchlist_refresh")
+
+# -----------------------------
+# Optional: Gewinn/Verlust Berechnung (Portfolio)
+# -----------------------------
+st.subheader("💰 Portfolio Übersicht")
+df_portfolio = df_results.groupby("Symbol").agg(
+    Open=('Open', 'last'),
+    Close=('Close', 'last')
+).reset_index()
+df_portfolio["PnL"] = df_portfolio["Close"] - df_portfolio["Open"]
+df_portfolio["PnL (%)"] = (df_portfolio["PnL"] / df_portfolio["Open"]) * 100
+st.dataframe(df_portfolio.style.format({"PnL": "{:.2f}", "PnL (%)": "{:.2f}%"}))
