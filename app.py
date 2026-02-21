@@ -1,5 +1,4 @@
 # Streamlit Trading Watchlist Web-App
-!pip install streamlit yfinance pandas ta scikit-learn textblob feedparser --quiet
 
 import streamlit as st
 import yfinance as yf
