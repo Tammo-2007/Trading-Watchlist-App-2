@@ -1,5 +1,4 @@
-# Streamlit Trading Watchlist Web-App
-
+# --- app.py für Streamlit Web-App ---
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -11,31 +10,36 @@ from sklearn.ensemble import RandomForestClassifier
 import time
 
 st.set_page_config(page_title="Trading Watchlist", layout="wide")
-
 st.title("📊 Trading Watchlist Web-App")
 
-# --- Watchlist Eingabe ---
+# --- Dynamische Watchlist ---
 watchlist_input = st.text_input(
     "Gib Aktien/ETFs ein (Komma getrennt):",
     value="AAPL, MSFT, GOOGL, AMZN"
 )
 watchlist = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
 
-# --- Intervall ---
+# --- Intervall-Slider ---
 interval = st.slider("Intervall (Sekunden)", 5, 120, 30)
 
-# --- Start / Stop Buttons ---
-start_btn = st.button("Start Analyse")
-stop_placeholder = st.empty()
-
-# --- Platz für Ausgabe ---
+# --- Ergebnisse ---
 output_table = st.empty()
 
 # --- Flag für Stop ---
 stop_flag = False
 
-def analyse_watchlist():
+def stop_analysis():
     global stop_flag
+    stop_flag = True
+
+# Stop-Button nur einmal in Sidebar
+st.sidebar.button("Stop Analyse", on_click=stop_analysis)
+
+# Start-Button
+start_btn = st.button("Start Analyse")
+
+# --- Analysefunktion ---
+def analyse_watchlist():
     results = {}
     
     # RSS Feed
@@ -113,5 +117,4 @@ if start_btn:
                       'background-color: orange' if v=="Neutral / Vorsichtig" else
                       'background-color: red' if v=="Verkaufssignal" else ''
         ))
-        stop_placeholder.button("Stop Analyse", on_click=lambda: setattr(globals(), "stop_flag", True))
         time.sleep(interval)
