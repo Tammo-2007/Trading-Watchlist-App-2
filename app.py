@@ -1,122 +1,76 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
+import yfinance as yf
 import numpy as np
-import datetime
-import altair as alt
 from streamlit_autorefresh import st_autorefresh
 
 # -----------------------------
-# Sidebar Setup
+# Automatische Aktualisierung
 # -----------------------------
-st.sidebar.title("Watchlist Einstellungen")
+# alle 60 Sekunden neu laden
+st_autorefresh(interval=60 * 1000, key="datarefresh")
 
-# Watchlist Symbole
-watchlist = st.sidebar.text_area(
-    "Symbole (getrennt durch Komma)", 
-    value="AAPL,MSFT,GOOGL,TSLA"
-).upper().replace(" ", "").split(",")
+# -----------------------------
+# Titel
+# -----------------------------
+st.title("Trading Watchlist")
 
-# Timeframe & Period
-timeframe = st.sidebar.selectbox("Timeframe", ["1d", "1h", "30m", "15m"])
-period = st.sidebar.selectbox("Period", ["7d", "14d", "1mo", "3mo"])
-
-# Auto-refresh Intervall
-refresh_interval = st.sidebar.number_input(
-    "Auto Refresh (Sekunden)", min_value=10, value=60, step=10
+# -----------------------------
+# Aktienliste
+# -----------------------------
+# Du kannst hier deine eigenen Symbole eintragen
+default_tickers = ["AAPL", "TSLA", "MSFT", "AMZN"]
+tickers_input = st.text_area(
+    "Aktien-Symbole (durch Komma getrennt)", 
+    value=",".join(default_tickers)
 )
-
-# Download CSV Button
-download_csv = st.sidebar.button("Download aktuelle Daten")
+tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 
 # -----------------------------
 # Daten abrufen
 # -----------------------------
-@st.cache_data(ttl=60)
-def fetch_data(symbols, period="7d", interval="1h"):
-    all_data = {}
+@st.cache_data
+def get_data(symbols):
+    all_data = []
     for symbol in symbols:
         try:
-            df = yf.download(symbol, period=period, interval=interval, progress=False)
-            df['Symbol'] = symbol
-            all_data[symbol] = df
+            data = yf.Ticker(symbol).history(period="5d")
+            if data.empty:
+                continue
+            last_close = data["Close"].iloc[-1]
+            prev_close = data["Close"].iloc[-2]
+            signal = "Kauf" if last_close > prev_close else "Verkauf"
+            all_data.append({
+                "Symbol": symbol,
+                "Letzter Schluss": last_close,
+                "Vorheriger Schluss": prev_close,
+                "Signal": signal
+            })
         except Exception as e:
-            st.warning(f"Fehler bei {symbol}: {e}")
-    return all_data
+            all_data.append({
+                "Symbol": symbol,
+                "Letzter Schluss": np.nan,
+                "Vorheriger Schluss": np.nan,
+                "Signal": "Fehler"
+            })
+    return pd.DataFrame(all_data)
 
-data_dict = fetch_data(watchlist, period=period, interval=timeframe)
-
-# -----------------------------
-# Signale berechnen
-# -----------------------------
-def compute_signals(df):
-    df = df.copy()
-    df["MA10"] = df["Close"].rolling(10).mean()
-    df["MA20"] = df["Close"].rolling(20).mean()
-    df["Signal"] = np.where(df["MA10"] > df["MA20"], "BUY", "SELL")
-    return df
-
-df_list = []
-for sym, df in data_dict.items():
-    df_signal = compute_signals(df)
-    df_signal["Symbol"] = sym
-    df_list.append(df_signal)
-
-df_results = pd.concat(df_list)
-df_results = df_results.reset_index()  # Datum als Spalte
+df_results = get_data(tickers)
 
 # -----------------------------
-# Styling & Ausgabe
+# Styling Funktion für Signale
 # -----------------------------
 def style_signal(val):
     color = ""
-    if val == "BUY":
+    if val == "Kauf":
         color = "green"
-    elif val == "SELL":
+    elif val == "Verkauf":
         color = "red"
-    return f"background-color: {color}; color:white; font-weight:bold"
+    elif val == "Fehler":
+        color = "orange"
+    return f"color: {color}; font-weight: bold"
 
-st.title("📊 Trading Watchlist")
+# -----------------------------
+# Ausgabe
+# -----------------------------
 st.dataframe(df_results.style.applymap(style_signal, subset=["Signal"]))
-
-# -----------------------------
-# Chart pro Symbol
-# -----------------------------
-st.subheader("📈 Chart")
-symbol_to_plot = st.selectbox("Symbol für Chart", watchlist)
-if symbol_to_plot in data_dict:
-    df_chart = data_dict[symbol_to_plot].reset_index()
-    chart = alt.Chart(df_chart).mark_line().encode(
-        x='Datetime:T',
-        y='Close:Q'
-    ).properties(width=700, height=400)
-    st.altair_chart(chart)
-
-# -----------------------------
-# CSV Download
-# -----------------------------
-if download_csv:
-    csv = df_results.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="Download CSV",
-        data=csv,
-        file_name="watchlist_data.csv",
-        mime="text/csv"
-    )
-
-# -----------------------------
-# Auto Refresh
-# -----------------------------
-st_autorefresh(interval=refresh_interval * 1000, key="watchlist_refresh")
-
-# -----------------------------
-# Optional: Gewinn/Verlust Berechnung (Portfolio)
-# -----------------------------
-st.subheader("💰 Portfolio Übersicht")
-df_portfolio = df_results.groupby("Symbol").agg(
-    Open=('Open', 'last'),
-    Close=('Close', 'last')
-).reset_index()
-df_portfolio["PnL"] = df_portfolio["Close"] - df_portfolio["Open"]
-df_portfolio["PnL (%)"] = (df_portfolio["PnL"] / df_portfolio["Open"]) * 100
-st.dataframe(df_portfolio.style.format({"PnL": "{:.2f}", "PnL (%)": "{:.2f}%"}))
