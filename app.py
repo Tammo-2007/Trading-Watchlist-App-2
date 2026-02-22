@@ -6,7 +6,7 @@ import altair as alt
 
 # --- Seite konfigurieren ---
 st.set_page_config(page_title="Trading Dashboard Profi", layout="wide")
-st.title("📊 Profi Trading Dashboard - Fertige Version mit Kacheln & Prognose")
+st.title("📊 Profi Trading Dashboard - Fertige Version (robust)")
 
 # --- Sidebar Einstellungen ---
 st.sidebar.header("Anzeigeoptionen")
@@ -33,27 +33,28 @@ def load_data(ticker):
     
     close_series = df["Close"].copy().dropna()
     
+    # SMA
     try:
         df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
         df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
-    except Exception as e:
-        st.warning(f"SMA konnte nicht berechnet werden: {e}")
-        df["SMA20"] = df["SMA50"] = None
+    except:
+        df["SMA20"] = df["SMA50"] = 0
 
+    # RSI
     try:
         df["RSI"] = ta.momentum.RSIIndicator(close_series, 14).rsi()
-    except Exception as e:
-        st.warning(f"RSI konnte nicht berechnet werden: {e}")
-        df["RSI"] = None
+    except:
+        df["RSI"] = 50
 
+    # MACD
     try:
         macd = ta.trend.MACD(close_series)
         df["MACD"] = macd.macd()
         df["MACD_signal"] = macd.macd_signal()
-    except Exception as e:
-        st.warning(f"MACD konnte nicht berechnet werden: {e}")
-        df["MACD"] = df["MACD_signal"] = None
+    except:
+        df["MACD"] = df["MACD_signal"] = 0
 
+    # Volumen-Signal
     if "Volume" in df.columns:
         df["Volumen_Signal"] = df["Volume"].rolling(20).mean()
     else:
@@ -66,27 +67,35 @@ df_reset = df.reset_index()
 
 # --- Erweiterte Ampel ---
 def advanced_signal(row):
+    # Werte holen und NaN abfangen
+    sma20 = row.get("SMA20", 0)
+    sma50 = row.get("SMA50", 0)
+    rsi = row.get("RSI", 50)
+    macd = row.get("MACD", 0)
+    macd_signal = row.get("MACD_signal", 0)
+    volume = row.get("Volume", 0)
+    vol_signal = row.get("Volumen_Signal", 0)
+    
+    sma20 = 0 if pd.isna(sma20) else sma20
+    sma50 = 0 if pd.isna(sma50) else sma50
+    rsi = 50 if pd.isna(rsi) else rsi
+    macd = 0 if pd.isna(macd) else macd
+    macd_signal = 0 if pd.isna(macd_signal) else macd_signal
+    volume = 0 if pd.isna(volume) else volume
+    vol_signal = 0 if pd.isna(vol_signal) else vol_signal
+
     score = 0
-    if row.get("SMA20", 0) > row.get("SMA50", 0):
-        score += 1
-    elif row.get("SMA20", 0) < row.get("SMA50", 0):
-        score -= 1
-    if row.get("RSI", 50) < 30:
-        score += 1
-    elif row.get("RSI", 50) > 70:
-        score -= 1
-    if row.get("MACD", 0) > row.get("MACD_signal", 0):
-        score += 1
-    elif row.get("MACD", 0) < row.get("MACD_signal", 0):
-        score -= 1
-    if row.get("Volume", 0) > 1.5 * row.get("Volumen_Signal", 0):
-        score += 0.5
-    if score >= 2:
-        return "Stark Kauf"
-    elif score <= -2:
-        return "Stark Verkauf"
-    else:
-        return "Halten"
+    if sma20 > sma50: score += 1
+    elif sma20 < sma50: score -= 1
+    if rsi < 30: score += 1
+    elif rsi > 70: score -= 1
+    if macd > macd_signal: score += 1
+    elif macd < macd_signal: score -= 1
+    if volume > 1.5 * vol_signal: score += 0.5
+
+    if score >= 2: return "Stark Kauf"
+    elif score <= -2: return "Stark Verkauf"
+    else: return "Halten"
 
 df["Advanced_Signal"] = df.apply(advanced_signal, axis=1)
 color_map = {"Stark Kauf": "#4CAF50", "Halten": "#FFC107", "Stark Verkauf": "#F44336"}
@@ -97,27 +106,23 @@ def forecast_trend(df):
     last_df = df.tail(5)
     score = 0
     for _, row in last_df.iterrows():
-        if row.get("SMA20", 0) > row.get("SMA50", 0):
-            score += 1
-        else:
-            score -= 1
-        if row.get("RSI", 50) < 30:
-            score += 1
-        elif row.get("RSI", 50) > 70:
-            score -= 1
-        if row.get("MACD", 0) > row.get("MACD_signal", 0):
-            score += 1
-        else:
-            score -= 1
-        if row.get("Volume", 0) > 1.5 * row.get("Volumen_Signal", 0):
-            score += 0.5
+        sma20 = 0 if pd.isna(row.get("SMA20", 0)) else row.get("SMA20", 0)
+        sma50 = 0 if pd.isna(row.get("SMA50", 0)) else row.get("SMA50", 0)
+        rsi = 50 if pd.isna(row.get("RSI", 50)) else row.get("RSI", 50)
+        macd = 0 if pd.isna(row.get("MACD", 0)) else row.get("MACD", 0)
+        macd_signal = 0 if pd.isna(row.get("MACD_signal", 0)) else row.get("MACD_signal", 0)
+        volume = 0 if pd.isna(row.get("Volume", 0)) else row.get("Volume", 0)
+        vol_signal = 0 if pd.isna(row.get("Volumen_Signal", 0)) else row.get("Volumen_Signal", 0)
+
+        score += 1 if sma20 > sma50 else -1
+        score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
+        score += 1 if macd > macd_signal else -1
+        score += 0.5 if volume > 1.5 * vol_signal else 0
+
     avg_score = score / max(len(last_df), 1)
-    if avg_score >= 1:
-        return "📈 Wahrscheinlich steigend"
-    elif avg_score <= -1:
-        return "📉 Wahrscheinlich fallend"
-    else:
-        return "➡️ Seitwärts"
+    if avg_score >= 1: return "📈 Wahrscheinlich steigend"
+    elif avg_score <= -1: return "📉 Wahrscheinlich fallend"
+    else: return "➡️ Seitwärts"
 
 tendenz = forecast_trend(df)
 color_map_forecast = {
@@ -186,6 +191,7 @@ with col2:
                 with st.expander(article['title']):
                     st.markdown(f"*Quelle: {article.get('publisher','unbekannt')}*")
                     st.markdown(f"[Link zur Meldung]({article.get('link','-')})")
+
     if show_ampel:
         st.subheader("🟡 Historie der letzten 20 Signale")
         df_hist = df[["Date", "Advanced_Signal"]].tail(20).copy()
