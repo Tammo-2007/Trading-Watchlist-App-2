@@ -74,18 +74,42 @@ df_reset = df.reset_index()
 
 # --- Erweiterte Ampel ---
 def advanced_signal(row):
-    score = 0
-    if row["SMA20"] > row["SMA50"]: score += 1
-    elif row["SMA20"] < row["SMA50"]: score -= 1
-    if row["RSI"] < 30: score += 1
-    elif row["RSI"] > 70: score -= 1
-    if row["MACD"] > row["MACD_signal"]: score += 1
-    elif row["MACD"] < row["MACD_signal"]: score -= 1
-    if row["Volume"] > 1.5 * row["Volumen_Signal"]: score += 0.5
+    try:
+        sma20 = row["SMA20"]
+        sma50 = row["SMA50"]
+        rsi = row["RSI"]
+        macd = row["MACD"]
+        macd_signal = row["MACD_signal"]
+        volume = row["Volume"]
+        vol_signal = row["Volumen_Signal"]
 
-    if score >= 2: return "Stark Kauf"
-    elif score <= -2: return "Stark Verkauf"
-    else: return "Halten"
+        # Werte sicherstellen
+        sma20 = float(sma20) if pd.notna(sma20) and not isinstance(sma20, (pd.Series, list, tuple)) else 0
+        sma50 = float(sma50) if pd.notna(sma50) and not isinstance(sma50, (pd.Series, list, tuple)) else 0
+        rsi = float(rsi) if pd.notna(rsi) else 50
+        macd = float(macd) if pd.notna(macd) else 0
+        macd_signal = float(macd_signal) if pd.notna(macd_signal) else 0
+        volume = float(volume) if pd.notna(volume) else 0
+        vol_signal = float(vol_signal) if pd.notna(vol_signal) else 0
+
+        score = 0
+        if sma20 > sma50: score += 1
+        elif sma20 < sma50: score -= 1
+
+        if rsi < 30: score += 1
+        elif rsi > 70: score -= 1
+
+        if macd > macd_signal: score += 1
+        elif macd < macd_signal: score -= 1
+
+        if volume > 1.5 * vol_signal: score += 0.5
+
+        if score >= 2: return "Stark Kauf"
+        elif score <= -2: return "Stark Verkauf"
+        else: return "Halten"
+
+    except:
+        return "Halten"
 
 df["Advanced_Signal"] = df.apply(advanced_signal, axis=1)
 color_map = {"Stark Kauf": "#4CAF50", "Halten": "#FFC107", "Stark Verkauf": "#F44336"}
@@ -96,10 +120,18 @@ def forecast_trend(df):
     last_df = df.tail(5).copy()
     score = 0
     for _, row in last_df.iterrows():
-        score += 1 if row["SMA20"] > row["SMA50"] else -1
-        score += 1 if row["RSI"] < 30 else (-1 if row["RSI"] > 70 else 0)
-        score += 1 if row["MACD"] > row["MACD_signal"] else -1
-        score += 0.5 if row["Volume"] > 1.5 * row["Volumen_Signal"] else 0
+        sma20 = float(row["SMA20"]) if pd.notna(row["SMA20"]) else 0
+        sma50 = float(row["SMA50"]) if pd.notna(row["SMA50"]) else 0
+        rsi = float(row["RSI"]) if pd.notna(row["RSI"]) else 50
+        macd = float(row["MACD"]) if pd.notna(row["MACD"]) else 0
+        macd_signal = float(row["MACD_signal"]) if pd.notna(row["MACD_signal"]) else 0
+        volume = float(row["Volume"]) if pd.notna(row["Volume"]) else 0
+        vol_signal = float(row["Volumen_Signal"]) if pd.notna(row["Volumen_Signal"]) else 0
+
+        score += 1 if sma20 > sma50 else -1
+        score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
+        score += 1 if macd > macd_signal else -1
+        score += 0.5 if volume > 1.5 * vol_signal else 0
 
     avg_score = score / max(len(last_df),1)
     if avg_score >= 1: 
@@ -168,7 +200,7 @@ with col2:
     if show_news:
         st.subheader("📰 Wichtigste News")
         ticker_obj = yf.Ticker(selected_ticker)
-        news = ticker_obj.news
+        news = getattr(ticker_obj, "news", [])
         if not news:
             st.write("Keine aktuellen Nachrichten verfügbar.")
         else:
