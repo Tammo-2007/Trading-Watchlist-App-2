@@ -201,9 +201,12 @@ with col2:
             st.write("Keine aktuellen Nachrichten verfügbar.")
         else:
             for article in news[:5]:
-                with st.expander(article['title']):
-                    st.markdown(f"*Quelle: {article.get('publisher','unbekannt')}*")
-                    st.markdown(f"[Link zur Meldung]({article.get('link','-')})")
+                title = article.get('title','Kein Titel verfügbar')
+                publisher = article.get('publisher','unbekannt')
+                link = article.get('link','#')
+                with st.expander(title):
+                    st.markdown(f"*Quelle: {publisher}*")
+                    st.markdown(f"[Link zur Meldung]({link})")
 
     if show_ampel:
         st.subheader("🟡 Historie der letzten 20 Signale")
