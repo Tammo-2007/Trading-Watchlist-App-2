@@ -3,3 +3,4 @@ yfinance
 pandas
 numpy
 streamlit-autorefresh==1.0.1
+ta
