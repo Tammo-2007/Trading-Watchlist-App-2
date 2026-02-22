@@ -59,7 +59,7 @@ def load_data(ticker):
     else:
         df["Volume"] = df["Volumen_Signal"] = 0
 
-    # --- Sicherstellen, dass alle numerischen Spalten float sind ---
+    # Sicherstellen, dass alle numerischen Spalten float sind
     numeric_cols = ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]
     for col in numeric_cols:
         if col in df.columns and isinstance(df[col], pd.Series):
@@ -75,22 +75,23 @@ df_reset = df.reset_index()
 # --- Erweiterte Ampel ---
 def advanced_signal(row):
     try:
-        sma20 = row["SMA20"]
-        sma50 = row["SMA50"]
-        rsi = row["RSI"]
-        macd = row["MACD"]
-        macd_signal = row["MACD_signal"]
-        volume = row["Volume"]
-        vol_signal = row["Volumen_Signal"]
+        sma20 = row.get("SMA20", 0)
+        sma50 = row.get("SMA50", 0)
+        rsi = row.get("RSI", 50)
+        macd = row.get("MACD", 0)
+        macd_signal = row.get("MACD_signal", 0)
+        volume = row.get("Volume", 0)
+        vol_signal = row.get("Volumen_Signal", 0)
 
-        # Werte sicherstellen
-        sma20 = float(sma20) if pd.notna(sma20) and not isinstance(sma20, (pd.Series, list, tuple)) else 0
-        sma50 = float(sma50) if pd.notna(sma50) and not isinstance(sma50, (pd.Series, list, tuple)) else 0
-        rsi = float(rsi) if pd.notna(rsi) else 50
-        macd = float(macd) if pd.notna(macd) else 0
-        macd_signal = float(macd_signal) if pd.notna(macd_signal) else 0
-        volume = float(volume) if pd.notna(volume) else 0
-        vol_signal = float(vol_signal) if pd.notna(vol_signal) else 0
+        # Arrays/Series sicher auf Skalar
+        for var in ["sma20","sma50","rsi","macd","macd_signal","volume","vol_signal"]:
+            val = locals()[var]
+            if isinstance(val, (pd.Series,list,tuple)):
+                locals()[var] = 0
+            elif pd.isna(val):
+                locals()[var] = 0 if var != "rsi" else 50
+
+        sma20, sma50, rsi, macd, macd_signal, volume, vol_signal = map(float, [sma20, sma50, rsi, macd, macd_signal, volume, vol_signal])
 
         score = 0
         if sma20 > sma50: score += 1
@@ -120,87 +121,82 @@ def forecast_trend(df):
     last_df = df.tail(5).copy()
     score = 0
     for _, row in last_df.iterrows():
-        sma20 = float(row["SMA20"]) if pd.notna(row["SMA20"]) else 0
-        sma50 = float(row["SMA50"]) if pd.notna(row["SMA50"]) else 0
-        rsi = float(row["RSI"]) if pd.notna(row["RSI"]) else 50
-        macd = float(row["MACD"]) if pd.notna(row["MACD"]) else 0
-        macd_signal = float(row["MACD_signal"]) if pd.notna(row["MACD_signal"]) else 0
-        volume = float(row["Volume"]) if pd.notna(row["Volume"]) else 0
-        vol_signal = float(row["Volumen_Signal"]) if pd.notna(row["Volumen_Signal"]) else 0
+        sma20 = row.get("SMA20",0)
+        sma50 = row.get("SMA50",0)
+        rsi = row.get("RSI",50)
+        macd = row.get("MACD",0)
+        macd_signal = row.get("MACD_signal",0)
+        volume = row.get("Volume",0)
+        vol_signal = row.get("Volumen_Signal",0)
+
+        for var in ["sma20","sma50","rsi","macd","macd_signal","volume","vol_signal"]:
+            val = locals()[var]
+            if isinstance(val,(pd.Series,list,tuple)):
+                locals()[var] = 0
+            elif pd.isna(val):
+                locals()[var] = 0 if var!="rsi" else 50
+
+        sma20, sma50, rsi, macd, macd_signal, volume, vol_signal = map(float,[sma20,sma50,rsi,macd,macd_signal,volume,vol_signal])
 
         score += 1 if sma20 > sma50 else -1
         score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
         score += 1 if macd > macd_signal else -1
-        score += 0.5 if volume > 1.5 * vol_signal else 0
+        score += 0.5 if volume > 1.5*vol_signal else 0
 
     avg_score = score / max(len(last_df),1)
-    if avg_score >= 1: 
-        return "📈 Wahrscheinlich steigend"
-    elif avg_score <= -1: 
-        return "📉 Wahrscheinlich fallend"
-    else: 
-        return "➡️ Seitwärts"
+    if avg_score >= 1: return "📈 Wahrscheinlich steigend"
+    elif avg_score <= -1: return "📉 Wahrscheinlich fallend"
+    else: return "➡️ Seitwärts"
 
 tendenz = forecast_trend(df)
-color_map_forecast = {
-    "📈 Wahrscheinlich steigend": "#4CAF50",
-    "➡️ Seitwärts": "#FFC107",
-    "📉 Wahrscheinlich fallend": "#F44336"
-}
+color_map_forecast = {"📈 Wahrscheinlich steigend":"#4CAF50","➡️ Seitwärts":"#FFC107","📉 Wahrscheinlich fallend":"#F44336"}
 
 # --- Layout Charts ---
-kpi1, kpi2 = st.columns([2,1])
+kpi1,kpi2 = st.columns([2,1])
 with kpi1:
     st.subheader("📈 Kurs + SMA + Signale")
-    chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T", y="Close:Q")
+    chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T",y="Close:Q")
     if show_sma:
-        chart += alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T", y="SMA20:Q")
-        chart += alt.Chart(df_reset).mark_line(color="purple").encode(x="Date:T", y="SMA50:Q")
+        chart += alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T",y="SMA20:Q")
+        chart += alt.Chart(df_reset).mark_line(color="purple").encode(x="Date:T",y="SMA50:Q")
     if show_markers:
         chart += alt.Chart(df_reset).mark_circle(size=100).encode(
             x="Date:T",
             y="Close:Q",
-            color=alt.Color("Advanced_Signal:N", scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values()))),
-            tooltip=["Date:T", "Close:Q", "Advanced_Signal:N"]
+            color=alt.Color("Advanced_Signal:N", scale=alt.Scale(domain=list(color_map.keys()),range=list(color_map.values()))),
+            tooltip=["Date:T","Close:Q","Advanced_Signal:N"]
         )
-    st.altair_chart(chart.interactive(), use_container_width=True)
+    st.altair_chart(chart.interactive(),use_container_width=True)
 
 with kpi2:
     st.subheader("📊 Indikatoren")
     indicator_chart = None
     if show_rsi:
-        chart_rsi = alt.Chart(df_reset).mark_line(color="green").encode(x="Date:T", y="RSI:Q")
-        indicator_chart = chart_rsi if indicator_chart is None else indicator_chart + chart_rsi
+        chart_rsi = alt.Chart(df_reset).mark_line(color="green").encode(x="Date:T",y="RSI:Q")
+        indicator_chart = chart_rsi if indicator_chart is None else indicator_chart+chart_rsi
     if show_macd:
-        chart_macd = alt.Chart(df_reset).mark_line(color="red").encode(x="Date:T", y="MACD:Q")
-        chart_signal = alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T", y="MACD_signal:Q")
-        indicator_chart = chart_macd + chart_signal if indicator_chart is None else indicator_chart + chart_macd + chart_signal
+        chart_macd = alt.Chart(df_reset).mark_line(color="red").encode(x="Date:T",y="MACD:Q")
+        chart_signal = alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T",y="MACD_signal:Q")
+        indicator_chart = chart_macd+chart_signal if indicator_chart is None else indicator_chart+chart_macd+chart_signal
     if indicator_chart:
-        st.altair_chart(indicator_chart, use_container_width=True)
+        st.altair_chart(indicator_chart,use_container_width=True)
 
 # --- Untere Kacheln ---
-col1, col2 = st.columns(2)
-
+col1,col2 = st.columns(2)
 with col1:
     if show_ampel:
         st.subheader("🟢 Erweiterte Ampel")
         last_signal = df["Advanced_Signal"].iloc[-1]
-        st.markdown(
-            f"<div style='background-color:{color_map[last_signal]};padding:20px;text-align:center;font-size:30px;border-radius:10px;color:white;'>{last_signal}</div>",
-            unsafe_allow_html=True
-        )
+        st.markdown(f"<div style='background-color:{color_map[last_signal]};padding:20px;text-align:center;font-size:30px;border-radius:10px;color:white;'>{last_signal}</div>",unsafe_allow_html=True)
 
         st.subheader("🔮 Prognose (nächste 3 Tage)")
-        st.markdown(
-            f"<div style='background-color:{color_map_forecast[tendenz]};padding:20px;text-align:center;font-size:25px;border-radius:10px;color:white;'>{tendenz}</div>",
-            unsafe_allow_html=True
-        )
+        st.markdown(f"<div style='background-color:{color_map_forecast[tendenz]};padding:20px;text-align:center;font-size:25px;border-radius:10px;color:white;'>{tendenz}</div>",unsafe_allow_html=True)
 
 with col2:
     if show_news:
         st.subheader("📰 Wichtigste News")
         ticker_obj = yf.Ticker(selected_ticker)
-        news = getattr(ticker_obj, "news", [])
+        news = getattr(ticker_obj,"news",[])
         if not news:
             st.write("Keine aktuellen Nachrichten verfügbar.")
         else:
@@ -211,7 +207,7 @@ with col2:
 
     if show_ampel:
         st.subheader("🟡 Historie der letzten 20 Signale")
-        df_hist = df_reset[["Date", "Advanced_Signal"]].tail(20).copy()
+        df_hist = df_reset[["Date","Advanced_Signal"]].tail(20).copy()
         df_hist["Signal_Code"] = df_hist["Advanced_Signal"].map(signal_map)
         df_hist_display = df_hist.set_index("Date")[["Signal_Code"]]
-        st.dataframe(df_hist_display.style.background_gradient(cmap="RdYlGn", axis=None))
+        st.dataframe(df_hist_display.style.background_gradient(cmap="RdYlGn",axis=None))
