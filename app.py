@@ -6,7 +6,7 @@ import altair as alt
 
 # --- Seite konfigurieren ---
 st.set_page_config(page_title="Trading Dashboard Profi", layout="wide")
-st.title("📊 Profi Trading Dashboard - Komplettversion mit Kacheln & Prognose")
+st.title("📊 Profi Trading Dashboard - Fertige Version mit Kacheln & Prognose")
 
 # --- Sidebar Einstellungen ---
 st.sidebar.header("Anzeigeoptionen")
@@ -26,13 +26,39 @@ selected_ticker = st.selectbox("Wähle eine Aktie", tickers, format_func=lambda 
 @st.cache_data
 def load_data(ticker):
     df = yf.download(ticker, period="6mo", interval="1d")
-    df["SMA20"] = ta.trend.SMAIndicator(df["Close"], 20).sma_indicator()
-    df["SMA50"] = ta.trend.SMAIndicator(df["Close"], 50).sma_indicator()
-    df["RSI"] = ta.momentum.RSIIndicator(df["Close"], 14).rsi()
-    macd = ta.trend.MACD(df["Close"])
-    df["MACD"] = macd.macd()
-    df["MACD_signal"] = macd.macd_signal()
-    df["Volumen_Signal"] = df["Volume"].rolling(20).mean()
+    
+    if "Close" not in df.columns:
+        st.error(f"Fehler: 'Close'-Daten für {ticker} nicht gefunden.")
+        return pd.DataFrame()
+    
+    close_series = df["Close"].copy().dropna()
+    
+    try:
+        df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
+        df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
+    except Exception as e:
+        st.warning(f"SMA konnte nicht berechnet werden: {e}")
+        df["SMA20"] = df["SMA50"] = None
+
+    try:
+        df["RSI"] = ta.momentum.RSIIndicator(close_series, 14).rsi()
+    except Exception as e:
+        st.warning(f"RSI konnte nicht berechnet werden: {e}")
+        df["RSI"] = None
+
+    try:
+        macd = ta.trend.MACD(close_series)
+        df["MACD"] = macd.macd()
+        df["MACD_signal"] = macd.macd_signal()
+    except Exception as e:
+        st.warning(f"MACD konnte nicht berechnet werden: {e}")
+        df["MACD"] = df["MACD_signal"] = None
+
+    if "Volume" in df.columns:
+        df["Volumen_Signal"] = df["Volume"].rolling(20).mean()
+    else:
+        df["Volume"] = df["Volumen_Signal"] = 0
+
     return df
 
 df = load_data(selected_ticker)
@@ -41,19 +67,19 @@ df_reset = df.reset_index()
 # --- Erweiterte Ampel ---
 def advanced_signal(row):
     score = 0
-    if row["SMA20"] > row["SMA50"]:
+    if row.get("SMA20", 0) > row.get("SMA50", 0):
         score += 1
-    elif row["SMA20"] < row["SMA50"]:
+    elif row.get("SMA20", 0) < row.get("SMA50", 0):
         score -= 1
-    if row["RSI"] < 30:
+    if row.get("RSI", 50) < 30:
         score += 1
-    elif row["RSI"] > 70:
+    elif row.get("RSI", 50) > 70:
         score -= 1
-    if row["MACD"] > row["MACD_signal"]:
+    if row.get("MACD", 0) > row.get("MACD_signal", 0):
         score += 1
-    elif row["MACD"] < row["MACD_signal"]:
+    elif row.get("MACD", 0) < row.get("MACD_signal", 0):
         score -= 1
-    if row["Volume"] > 1.5 * row["Volumen_Signal"]:
+    if row.get("Volume", 0) > 1.5 * row.get("Volumen_Signal", 0):
         score += 0.5
     if score >= 2:
         return "Stark Kauf"
@@ -71,21 +97,21 @@ def forecast_trend(df):
     last_df = df.tail(5)
     score = 0
     for _, row in last_df.iterrows():
-        if row["SMA20"] > row["SMA50"]:
+        if row.get("SMA20", 0) > row.get("SMA50", 0):
             score += 1
         else:
             score -= 1
-        if row["RSI"] < 30:
+        if row.get("RSI", 50) < 30:
             score += 1
-        elif row["RSI"] > 70:
+        elif row.get("RSI", 50) > 70:
             score -= 1
-        if row["MACD"] > row["MACD_signal"]:
+        if row.get("MACD", 0) > row.get("MACD_signal", 0):
             score += 1
         else:
             score -= 1
-        if row["Volume"] > 1.5 * row["Volumen_Signal"]:
+        if row.get("Volume", 0) > 1.5 * row.get("Volumen_Signal", 0):
             score += 0.5
-    avg_score = score / len(last_df)
+    avg_score = score / max(len(last_df), 1)
     if avg_score >= 1:
         return "📈 Wahrscheinlich steigend"
     elif avg_score <= -1:
