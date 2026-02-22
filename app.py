@@ -186,11 +186,11 @@ col1,col2 = st.columns(2)
 with col1:
     if show_ampel:
         st.subheader("🟢 Erweiterte Ampel")
-        last_signal = df["Advanced_Signal"].iloc[-1]
-        st.markdown(f"<div style='background-color:{color_map[last_signal]};padding:20px;text-align:center;font-size:30px;border-radius:10px;color:white;'>{last_signal}</div>",unsafe_allow_html=True)
+        last_signal = df["Advanced_Signal"].iloc[-1] if "Advanced_Signal" in df.columns else "Keine Daten"
+        st.markdown(f"<div style='background-color:{color_map.get(last_signal,'#CCCCCC')};padding:20px;text-align:center;font-size:30px;border-radius:10px;color:white;'>{last_signal}</div>",unsafe_allow_html=True)
 
         st.subheader("🔮 Prognose (nächste 3 Tage)")
-        st.markdown(f"<div style='background-color:{color_map_forecast[tendenz]};padding:20px;text-align:center;font-size:25px;border-radius:10px;color:white;'>{tendenz}</div>",unsafe_allow_html=True)
+        st.markdown(f"<div style='background-color:{color_map_forecast.get(tendenz,'#CCCCCC')};padding:20px;text-align:center;font-size:25px;border-radius:10px;color:white;'>{tendenz}</div>",unsafe_allow_html=True)
 
 with col2:
     if show_news:
@@ -210,7 +210,10 @@ with col2:
 
     if show_ampel:
         st.subheader("🟡 Historie der letzten 20 Signale")
-        df_hist = df_reset[["Date","Advanced_Signal"]].tail(20).copy()
-        df_hist["Signal_Code"] = df_hist["Advanced_Signal"].map(signal_map)
-        df_hist_display = df_hist.set_index("Date")[["Signal_Code"]]
-        st.dataframe(df_hist_display.style.background_gradient(cmap="RdYlGn",axis=None))
+        if "Advanced_Signal" in df_reset.columns:
+            df_hist = df_reset[["Date","Advanced_Signal"]].tail(20).copy()
+            df_hist["Signal_Code"] = df_hist["Advanced_Signal"].map(signal_map)
+            df_hist_display = df_hist.set_index("Date")[["Signal_Code"]]
+            st.dataframe(df_hist_display.style.background_gradient(cmap="RdYlGn",axis=None))
+        else:
+            st.write("Keine Signaldaten verfügbar.")
