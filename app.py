@@ -2,109 +2,137 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np
+import ta
 from streamlit_autorefresh import st_autorefresh
 
-# ----------------------------
-# Auto Refresh (60 Sekunden)
-# ----------------------------
+st.set_page_config(layout="wide", page_title="Trading Entscheidungs-Dashboard")
 st_autorefresh(interval=60 * 1000, key="refresh")
 
-# ----------------------------
-# Seitenlayout
-# ----------------------------
-st.set_page_config(page_title="Trading Watchlist", layout="wide")
+st.title("📊 Trading Entscheidungs-Dashboard")
 
-st.title("📈 Trading Watchlist")
-
-# ----------------------------
-# Eingabe der Symbole
-# ----------------------------
-default_symbols = "AAPL,MSFT,TSLA,AMZN"
-
-symbols_input = st.text_area(
-    "Aktien oder ETFs (Komma getrennt)",
-    value=default_symbols
-)
-
+# -----------------------------
+# Eingabe
+# -----------------------------
+default_symbols = "RHM.DE,AAPL,MSFT,SPY"
+symbols_input = st.text_area("Aktien / ETFs (Komma getrennt)", value=default_symbols)
 symbols = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
 
-# ----------------------------
-# Daten laden
-# ----------------------------
-@st.cache_data(ttl=60)
-def load_data(ticker_list):
-    results = []
+# -----------------------------
+# Datenfunktion
+# -----------------------------
+@st.cache_data(ttl=300)
+def load_market_data(symbol):
+    ticker = yf.Ticker(symbol)
+    hist = ticker.history(period="6mo")
 
-    for ticker in ticker_list:
-        try:
-            data = yf.Ticker(ticker).history(period="5d")
+    if hist.empty:
+        return None, None, None
 
-            if len(data) < 2:
-                continue
+    # Indikatoren
+    hist["EMA20"] = ta.trend.ema_indicator(hist["Close"], window=20)
+    hist["EMA50"] = ta.trend.ema_indicator(hist["Close"], window=50)
+    hist["RSI"] = ta.momentum.rsi(hist["Close"], window=14)
+    hist["ATR"] = ta.volatility.average_true_range(
+        hist["High"], hist["Low"], hist["Close"], window=14
+    )
 
-            last_close = data["Close"].iloc[-1]
-            prev_close = data["Close"].iloc[-2]
+    # Name
+    try:
+        name = ticker.info.get("longName", symbol)
+    except:
+        name = symbol
 
-            change = last_close - prev_close
-            change_pct = (change / prev_close) * 100
+    return hist, name, hist.iloc[-1]
 
-            signal = "Kauf" if change > 0 else "Verkauf"
+# -----------------------------
+# Score Berechnung
+# -----------------------------
+def calculate_score(last_row):
+    score = 0
 
-            results.append({
-                "Symbol": ticker,
-                "Letzter Kurs": round(last_close, 2),
-                "Veränderung": round(change, 2),
-                "Veränderung %": round(change_pct, 2),
-                "Signal": signal
-            })
+    if last_row["Close"] > last_row["EMA20"]:
+        score += 1
+    if last_row["EMA20"] > last_row["EMA50"]:
+        score += 1
+    if 40 < last_row["RSI"] < 65:
+        score += 1
+    if last_row["RSI"] < 30:
+        score += 1
+    if last_row["Close"] > last_row["EMA50"]:
+        score += 1
 
-        except Exception:
-            results.append({
-                "Symbol": ticker,
-                "Letzter Kurs": np.nan,
-                "Veränderung": np.nan,
-                "Veränderung %": np.nan,
-                "Signal": "Fehler"
-            })
+    return score
 
-    return pd.DataFrame(results)
+# -----------------------------
+# Übersicht erstellen
+# -----------------------------
+overview = []
 
+for symbol in symbols:
+    hist, name, last = load_market_data(symbol)
+    if hist is None:
+        continue
 
-df = load_data(symbols)
+    score = calculate_score(last)
 
-# ----------------------------
-# Styling
-# ----------------------------
-def style_signal(val):
-    if val == "Kauf":
-        return "color: green; font-weight: bold;"
-    if val == "Verkauf":
-        return "color: red; font-weight: bold;"
-    if val == "Fehler":
-        return "color: orange; font-weight: bold;"
-    return ""
+    trend = "Bullisch" if last["EMA20"] > last["EMA50"] else "Bärisch"
 
-# ----------------------------
-# Anzeige
-# ----------------------------
-if not df.empty:
-    st.dataframe(df.style.applymap(style_signal, subset=["Signal"]),
+    overview.append({
+        "Name": name,
+        "Symbol": symbol,
+        "Kurs": round(last["Close"], 2),
+        "Trend": trend,
+        "RSI": round(last["RSI"], 1),
+        "Score (0-5)": score
+    })
+
+overview_df = pd.DataFrame(overview)
+
+# -----------------------------
+# Anzeige Übersicht
+# -----------------------------
+st.subheader("📈 Marktübersicht")
+
+if not overview_df.empty:
+    st.dataframe(overview_df.sort_values("Score (0-5)", ascending=False),
                  use_container_width=True)
 else:
-    st.warning("Keine gültigen Daten gefunden.")
+    st.warning("Keine Daten geladen.")
 
-# ----------------------------
-# Chart Auswahl
-# ----------------------------
-st.subheader("📊 Chart")
+# -----------------------------
+# Detailbereich
+# -----------------------------
+st.subheader("🔍 Detailanalyse")
 
 if symbols:
-    selected_symbol = st.selectbox("Symbol auswählen", symbols)
+    selected_symbol = st.selectbox("Asset auswählen", symbols)
+    hist, name, last = load_market_data(selected_symbol)
 
-    try:
-        chart_data = yf.Ticker(selected_symbol).history(period="1mo")
+    if hist is not None:
 
-        st.line_chart(chart_data["Close"])
+        col1, col2 = st.columns([2,1])
 
-    except Exception:
-        st.error("Chart konnte nicht geladen werden.")
+        with col1:
+            st.write(f"### {name}")
+            chart_df = hist[["Close", "EMA20", "EMA50"]]
+            st.line_chart(chart_df)
+
+        with col2:
+            score = calculate_score(last)
+            stop_loss = last["Close"] - last["ATR"] * 1.5
+            risk_pct = ((last["Close"] - stop_loss) / last["Close"]) * 100
+
+            st.metric("Aktueller Kurs", round(last["Close"],2))
+            st.metric("RSI", round(last["RSI"],1))
+            st.metric("Score", score)
+
+            st.write("### Stop-Loss Vorschlag")
+            st.write(f"{round(stop_loss,2)}")
+            st.write(f"Risiko: {round(risk_pct,2)} %")
+
+            if score >= 4:
+                st.success("Technisch stark")
+            elif score >= 2:
+                st.warning("Neutral / Beobachten")
+            else:
+                st.error("Technisch schwach")
