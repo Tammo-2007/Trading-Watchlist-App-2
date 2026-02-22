@@ -11,8 +11,8 @@ st.title("📊 Profi Trading Dashboard mit Portfolio-Status")
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = []
 
-# --- Sidebar: Aktien eintragen & Status ---
-st.sidebar.header("Aktien eintragen / Status wählen")
+# --- Sidebar: Aktien eintragen / bearbeiten ---
+st.sidebar.header("Aktien verwalten")
 new_ticker = st.sidebar.text_input("Ticker (z.B. RHM.DE)")
 new_name = st.sidebar.text_input("Name (optional)")
 new_status = st.sidebar.selectbox("Status", ["Beobachtung", "Besitzt"])
@@ -27,9 +27,17 @@ if st.sidebar.button("Aktie hinzufügen"):
             "Status": new_status
         })
 
+# Aktienliste mit Lösch-Button
 st.sidebar.subheader("Aktuelle Aktien:")
-for a in st.session_state.aktien_liste:
-    st.sidebar.write(f"{a['Ticker']} → {a['Name']} ({a['Status']})")
+to_delete = None
+for i, a in enumerate(st.session_state.aktien_liste):
+    cols = st.sidebar.columns([4,1])
+    cols[0].write(f"{a['Ticker']} → {a['Name']} ({a['Status']})")
+    if cols[1].button("🗑️", key=f"del_{i}"):
+        to_delete = i
+if to_delete is not None:
+    st.session_state.aktien_liste.pop(to_delete)
+    st.experimental_rerun()  # App neu laden, damit Löschung sofort sichtbar
 
 # Anzeigeoptionen Sidebar
 st.sidebar.header("Anzeigeoptionen")
@@ -134,11 +142,11 @@ st.header("📊 Interaktive Aktien-Analyse")
 if portfolio_df.empty:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
 else:
-    selected_portfolio_ticker = st.selectbox(
-        "Wähle eine Aktie aus deinem Portfolio",
-        portfolio_df["Ticker"],
-        format_func=lambda x: next(a["Name"] for a in st.session_state.aktien_liste if a["Ticker"] == x)
-    )
+    ticker_options = [a["Ticker"] for a in st.session_state.aktien_liste]
+    display_names = [f"{a['Name']} ({a['Ticker']})" for a in st.session_state.aktien_liste]
+    selected_index = st.selectbox("Wähle eine Aktie aus deinem Portfolio", range(len(ticker_options)), format_func=lambda i: display_names[i])
+    selected_portfolio_ticker = ticker_options[selected_index]
+    
     df_selected = load_data(selected_portfolio_ticker)
     if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
