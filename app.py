@@ -1,20 +1,131 @@
-st.header("📊 Interaktive Aktien-Analyse")
+import streamlit as st
+import pandas as pd
+import yfinance as yf
+import ta
+import altair as alt
 
-# Dropdown: Aktie aus Portfolio auswählen
-if not st.session_state.aktien_liste:
+# --- Seite konfigurieren ---
+st.set_page_config(page_title="Trading Dashboard Profi", layout="wide")
+st.title("📊 Profi Trading Dashboard mit Portfolio-Status")
+
+# --- Session-State initialisieren ---
+if "aktien_liste" not in st.session_state:
+    st.session_state.aktien_liste = []
+
+# --- Sidebar: Aktien eintragen & Status ---
+st.sidebar.header("Aktien eintragen / Status wählen")
+new_ticker = st.sidebar.text_input("Ticker (z.B. RHM.DE)")
+new_name = st.sidebar.text_input("Name (z.B. Rheinmetall)")
+new_status = st.sidebar.selectbox("Status", ["Beobachtung", "Besitzt"])
+
+if st.sidebar.button("Aktie hinzufügen") and new_ticker and new_name:
+    st.session_state.aktien_liste.append({
+        "Ticker": new_ticker.upper(),
+        "Name": new_name,
+        "Status": new_status
+    })
+
+# Aktuelle Liste
+st.sidebar.subheader("Aktuelle Aktien:")
+for a in st.session_state.aktien_liste:
+    st.sidebar.write(f"{a['Ticker']} → {a['Name']} ({a['Status']})")
+
+# Anzeigeoptionen Sidebar
+st.sidebar.header("Anzeigeoptionen")
+show_sma = st.sidebar.checkbox("SMA20/50 anzeigen", value=True)
+show_rsi = st.sidebar.checkbox("RSI anzeigen", value=True)
+show_macd = st.sidebar.checkbox("MACD anzeigen", value=True)
+show_ampel = st.sidebar.checkbox("Ampel anzeigen", value=True)
+show_markers = st.sidebar.checkbox("Signale im Chart anzeigen", value=True)
+
+# --- Funktion: Daten laden ---
+@st.cache_data
+def load_data(ticker):
+    df = yf.download(ticker, period="6mo", interval="1d")
+    if "Close" not in df.columns: return pd.DataFrame()
+    close_series = df["Close"].copy().dropna()
+    try:
+        df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
+        df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
+        df["RSI"] = ta.momentum.RSIIndicator(close_series, 14).rsi()
+        macd = ta.trend.MACD(close_series)
+        df["MACD"] = macd.macd()
+        df["MACD_signal"] = macd.macd_signal()
+    except:
+        df["SMA20"]=df["SMA50"]=df["RSI"]=df["MACD"]=df["MACD_signal"]=0
+    df["Volume"] = df.get("Volume",0)
+    df["Volumen_Signal"] = df["Volume"].rolling(20).mean()
+    for col in ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]:
+        if col in df.columns and isinstance(df[col], pd.Series):
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        else: df[col]=0
+    return df
+
+# --- Erweiterte Ampel ---
+def advanced_signal(row):
+    try:
+        sma20,sma50,rsi,macd,macd_signal,vol=row.get("SMA20",0),row.get("SMA50",0),row.get("RSI",50),row.get("MACD",0),row.get("MACD_signal",0),row.get("Volume",0)
+        vol_signal=row.get("Volumen_Signal",0)
+        score=0
+        score += 1 if sma20>sma50 else (-1 if sma20<sma50 else 0)
+        score += 1 if rsi<30 else (-1 if rsi>70 else 0)
+        score += 1 if macd>macd_signal else (-1 if macd<macd_signal else 0)
+        score += 0.5 if vol>1.5*vol_signal else 0
+        return "Stark Kauf" if score>=2 else ("Stark Verkauf" if score<=-2 else "Halten")
+    except: return "Halten"
+
+def forecast_trend(df):
+    last_df = df.tail(5)
+    score=0
+    for _,row in last_df.iterrows():
+        sma20,sma50,rsi,macd,macd_signal,vol=row.get("SMA20",0),row.get("SMA50",0),row.get("RSI",50),row.get("MACD",0),row.get("MACD_signal",0),row.get("Volume",0)
+        vol_signal=row.get("Volumen_Signal",0)
+        score += 1 if sma20>sma50 else -1
+        score += 1 if rsi<30 else (-1 if rsi>70 else 0)
+        score += 1 if macd>macd_signal else -1
+        score += 0.5 if vol>1.5*vol_signal else 0
+    avg_score = score/max(len(last_df),1)
+    return "📈 Wahrscheinlich steigend" if avg_score>=1 else ("📉 Wahrscheinlich fallend" if avg_score<=-1 else "➡️ Seitwärts")
+
+# --- Portfolio-Übersicht ---
+st.header("📋 Portfolio-Übersicht")
+portfolio_data=[]
+for a in st.session_state.aktien_liste:
+    ticker,name,status=a["Ticker"],a["Name"],a["Status"]
+    df=load_data(ticker)
+    if df.empty: continue
+    df["Advanced_Signal"]=df.apply(advanced_signal,axis=1)
+    trend=forecast_trend(df)
+    last_signal=df["Advanced_Signal"].iloc[-1]
+    portfolio_data.append({"Ticker":ticker,"Name":name,"Status":status,"Signal":last_signal,"Trend":trend})
+
+portfolio_df=pd.DataFrame(portfolio_data)
+
+# Farben
+status_color={"Besitzt":"#4CAF50","Beobachtung":"#2196F3"}
+signal_color={"Stark Kauf":"#4CAF50","Halten":"#FFC107","Stark Verkauf":"#F44336"}
+forecast_color={"📈 Wahrscheinlich steigend":"#4CAF50","➡️ Seitwärts":"#FFC107","📉 Wahrscheinlich fallend":"#F44336"}
+
+def color_row(row):
+    return [f'background-color: {status_color.get(row["Status"],"#FFFFFF")}' if col=="Status" else
+            f'background-color: {signal_color.get(row["Signal"],"#FFFFFF")}' if col=="Signal" else
+            f'background-color: {forecast_color.get(row["Trend"],"#FFFFFF")}' if col=="Trend" else ""
+            for col in portfolio_df.columns]
+
+st.dataframe(portfolio_df.style.apply(color_row,axis=1))
+
+# --- Interaktive Aktien-Analyse ---
+st.header("📊 Interaktive Aktien-Analyse")
+if portfolio_df.empty:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
 else:
     selected_portfolio_ticker = st.selectbox(
         "Wähle eine Aktie aus deinem Portfolio",
-        [a["Ticker"] for a in st.session_state.aktien_liste],
+        portfolio_df["Ticker"],
         format_func=lambda x: next(a["Name"] for a in st.session_state.aktien_liste if a["Ticker"]==x)
     )
-
-    # Daten laden
     df_selected = load_data(selected_portfolio_ticker)
-    if df_selected.empty:
-        st.warning("Keine Kursdaten verfügbar.")
-    else:
+    if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
         tendenz = forecast_trend(df_selected)
         df_reset = df_selected.reset_index()
@@ -34,6 +145,7 @@ else:
             )
         st.altair_chart(chart.interactive(), use_container_width=True)
 
+        # Indikatoren
         st.subheader("📊 Indikatoren")
         indicator_chart = None
         if show_rsi:
@@ -56,7 +168,6 @@ else:
 
         # Historie
         st.subheader("🟡 Historie der letzten 20 Signale")
-        if "Advanced_Signal" in df_reset.columns:
-            df_hist = df_reset[["Date","Advanced_Signal"]].tail(20).copy()
-            df_hist["Signal_Code"] = df_hist["Advanced_Signal"].map({"Stark Kauf":2,"Halten":1,"Stark Verkauf":0})
-            st.dataframe(df_hist.set_index("Date")[["Signal_Code"]].style.background_gradient(cmap="RdYlGn", axis=None))
+        df_hist = df_reset[["Date","Advanced_Signal"]].tail(20).copy()
+        df_hist["Signal_Code"] = df_hist["Advanced_Signal"].map({"Stark Kauf":2,"Halten":1,"Stark Verkauf":0})
+        st.dataframe(df_hist.set_index("Date")[["Signal_Code"]].style.background_gradient(cmap="RdYlGn", axis=None))
