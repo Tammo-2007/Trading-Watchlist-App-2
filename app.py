@@ -29,9 +29,9 @@ def load_data(ticker):
     if "Close" not in df.columns:
         st.error(f"Fehler: 'Close'-Daten für {ticker} nicht gefunden.")
         return pd.DataFrame()
-    
+
     close_series = df["Close"].copy().dropna()
-    
+
     # SMA
     try:
         df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
@@ -59,9 +59,13 @@ def load_data(ticker):
     else:
         df["Volume"] = df["Volumen_Signal"] = 0
 
-    # Sicherstellen, dass alle numerischen Spalten float sind
-    for col in ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    # --- Sicherstellen, dass alle numerischen Spalten float sind ---
+    numeric_cols = ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]
+    for col in numeric_cols:
+        if col in df.columns and isinstance(df[col], pd.Series):
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        else:
+            df[col] = 0
 
     return df
 
@@ -175,7 +179,7 @@ with col2:
 
     if show_ampel:
         st.subheader("🟡 Historie der letzten 20 Signale")
-        df_hist = df[["Date", "Advanced_Signal"]].tail(20).copy()
+        df_hist = df_reset[["Date", "Advanced_Signal"]].tail(20).copy()
         df_hist["Signal_Code"] = df_hist["Advanced_Signal"].map(signal_map)
         df_hist_display = df_hist.set_index("Date")[["Signal_Code"]]
         st.dataframe(df_hist_display.style.background_gradient(cmap="RdYlGn", axis=None))
