@@ -26,7 +26,6 @@ selected_ticker = st.selectbox("Wähle eine Aktie", tickers, format_func=lambda 
 @st.cache_data
 def load_data(ticker):
     df = yf.download(ticker, period="6mo", interval="1d")
-    
     if "Close" not in df.columns:
         st.error(f"Fehler: 'Close'-Daten für {ticker} nicht gefunden.")
         return pd.DataFrame()
@@ -67,22 +66,20 @@ df_reset = df.reset_index()
 
 # --- Erweiterte Ampel ---
 def advanced_signal(row):
-    # Werte holen und NaN abfangen
-    sma20 = row.get("SMA20", 0)
-    sma50 = row.get("SMA50", 0)
-    rsi = row.get("RSI", 50)
-    macd = row.get("MACD", 0)
-    macd_signal = row.get("MACD_signal", 0)
-    volume = row.get("Volume", 0)
-    vol_signal = row.get("Volumen_Signal", 0)
-    
-    sma20 = 0 if pd.isna(sma20) else sma20
-    sma50 = 0 if pd.isna(sma50) else sma50
-    rsi = 50 if pd.isna(rsi) else rsi
-    macd = 0 if pd.isna(macd) else macd
-    macd_signal = 0 if pd.isna(macd_signal) else macd_signal
-    volume = 0 if pd.isna(volume) else volume
-    vol_signal = 0 if pd.isna(vol_signal) else vol_signal
+    # Robuste Extraktion als float
+    def get_float(val, default):
+        try:
+            return float(val) if pd.notna(val) else default
+        except:
+            return default
+
+    sma20 = get_float(row.get("SMA20"), 0)
+    sma50 = get_float(row.get("SMA50"), 0)
+    rsi = get_float(row.get("RSI"), 50)
+    macd = get_float(row.get("MACD"), 0)
+    macd_signal = get_float(row.get("MACD_signal"), 0)
+    volume = get_float(row.get("Volume"), 0)
+    vol_signal = get_float(row.get("Volumen_Signal"), 0)
 
     score = 0
     if sma20 > sma50: score += 1
@@ -106,13 +103,13 @@ def forecast_trend(df):
     last_df = df.tail(5)
     score = 0
     for _, row in last_df.iterrows():
-        sma20 = 0 if pd.isna(row.get("SMA20", 0)) else row.get("SMA20", 0)
-        sma50 = 0 if pd.isna(row.get("SMA50", 0)) else row.get("SMA50", 0)
-        rsi = 50 if pd.isna(row.get("RSI", 50)) else row.get("RSI", 50)
-        macd = 0 if pd.isna(row.get("MACD", 0)) else row.get("MACD", 0)
-        macd_signal = 0 if pd.isna(row.get("MACD_signal", 0)) else row.get("MACD_signal", 0)
-        volume = 0 if pd.isna(row.get("Volume", 0)) else row.get("Volume", 0)
-        vol_signal = 0 if pd.isna(row.get("Volumen_Signal", 0)) else row.get("Volumen_Signal", 0)
+        sma20 = float(row.get("SMA20", 0)) if pd.notna(row.get("SMA20", 0)) else 0
+        sma50 = float(row.get("SMA50", 0)) if pd.notna(row.get("SMA50", 0)) else 0
+        rsi = float(row.get("RSI", 50)) if pd.notna(row.get("RSI", 50)) else 50
+        macd = float(row.get("MACD", 0)) if pd.notna(row.get("MACD", 0)) else 0
+        macd_signal = float(row.get("MACD_signal", 0)) if pd.notna(row.get("MACD_signal", 0)) else 0
+        volume = float(row.get("Volume", 0)) if pd.notna(row.get("Volume", 0)) else 0
+        vol_signal = float(row.get("Volumen_Signal", 0)) if pd.notna(row.get("Volumen_Signal", 0)) else 0
 
         score += 1 if sma20 > sma50 else -1
         score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
@@ -131,7 +128,7 @@ color_map_forecast = {
     "📉 Wahrscheinlich fallend": "#F44336"
 }
 
-# --- Layout Kacheln ---
+# --- Layout Charts ---
 kpi1, kpi2 = st.columns([2,1])
 with kpi1:
     st.subheader("📈 Kurs + SMA + Signale")
@@ -161,7 +158,7 @@ with kpi2:
     if indicator_chart:
         st.altair_chart(indicator_chart, use_container_width=True)
 
-# --- Untere Kacheln: Ampel, Prognose, News ---
+# --- Untere Kacheln ---
 col1, col2 = st.columns(2)
 
 with col1:
