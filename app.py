@@ -1,138 +1,141 @@
+# app.py
 import streamlit as st
-import pandas as pd
 import yfinance as yf
+import pandas as pd
 import numpy as np
-import ta
-from streamlit_autorefresh import st_autorefresh
+from datetime import datetime, timedelta
+from ta.trend import SMAIndicator, EMAIndicator, ADXIndicator, MACD
+from ta.momentum import RSIIndicator
+from ta.volatility import BollingerBands
+import requests
 
-st.set_page_config(layout="wide", page_title="Trading Entscheidungs-Dashboard")
-st_autorefresh(interval=60 * 1000, key="refresh")
-
-st.title("📊 Trading Entscheidungs-Dashboard")
-
-# -----------------------------
-# Eingabe
-# -----------------------------
-default_symbols = "RHM.DE,AAPL,MSFT,SPY"
-symbols_input = st.text_area("Aktien / ETFs (Komma getrennt)", value=default_symbols)
-symbols = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
+st.set_page_config(page_title="Profi Aktien Dashboard", layout="wide")
 
 # -----------------------------
-# Datenfunktion
+# Einstellungen / Schalter
 # -----------------------------
-@st.cache_data(ttl=300)
-def load_market_data(symbol):
-    ticker = yf.Ticker(symbol)
-    hist = ticker.history(period="6mo")
+st.sidebar.header("Einstellungen")
+symbol_mode = st.sidebar.radio("Anzeige:", ["Ticker", "Name"])
+live_update = st.sidebar.checkbox("Live Update", value=True)
+update_interval = st.sidebar.slider("Update Intervall (Sekunden)", 30, 300, 60)
 
-    if hist.empty:
-        return None, None, None
-
-    # Indikatoren
-    hist["EMA20"] = ta.trend.ema_indicator(hist["Close"], window=20)
-    hist["EMA50"] = ta.trend.ema_indicator(hist["Close"], window=50)
-    hist["RSI"] = ta.momentum.rsi(hist["Close"], window=14)
-    hist["ATR"] = ta.volatility.average_true_range(
-        hist["High"], hist["Low"], hist["Close"], window=14
-    )
-
-    # Name
-    try:
-        name = ticker.info.get("longName", symbol)
-    except:
-        name = symbol
-
-    return hist, name, hist.iloc[-1]
+# Beispiel Aktienliste mit Namen
+aktien_dict = {
+    "RHM.DE": "Rheinmetall",
+    "SAP.DE": "SAP",
+    "DAI.DE": "Daimler",
+    "BMW.DE": "BMW",
+    "ALV.DE": "Allianz"
+}
+symbols = list(aktien_dict.keys())
 
 # -----------------------------
-# Score Berechnung
+# Aktien auswählen
 # -----------------------------
-def calculate_score(last_row):
+selected = st.multiselect("Aktien auswählen", symbols, default=symbols[:3])
+
+# -----------------------------
+# Daten abrufen
+# -----------------------------
+def get_stock_data(symbol):
+    df = yf.download(symbol, period="6mo", interval="1d")
+    df = df.dropna()
+    return df
+
+# -----------------------------
+# Technische Indikatoren berechnen
+# -----------------------------
+def calculate_indicators(df):
+    df["SMA20"] = SMAIndicator(df["Close"], 20).sma_indicator()
+    df["EMA20"] = EMAIndicator(df["Close"], 20).ema_indicator()
+    macd = MACD(df["Close"])
+    df["MACD"] = macd.macd()
+    df["MACD_Signal"] = macd.macd_signal()
+    df["RSI"] = RSIIndicator(df["Close"]).rsi()
+    bb = BollingerBands(df["Close"])
+    df["BB_High"] = bb.bollinger_hband()
+    df["BB_Low"] = bb.bollinger_lband()
+    df["ADX"] = ADXIndicator(df["High"], df["Low"], df["Close"]).adx()
+    df["Volumen"] = df["Volume"]
+    return df
+
+# -----------------------------
+# Signalberechnung
+# -----------------------------
+def generate_signal(row):
     score = 0
-
-    if last_row["Close"] > last_row["EMA20"]:
+    if row["Close"] > row["SMA20"]:
         score += 1
-    if last_row["EMA20"] > last_row["EMA50"]:
+    if row["Close"] > row["EMA20"]:
         score += 1
-    if 40 < last_row["RSI"] < 65:
+    if row["MACD"] > row["MACD_Signal"]:
         score += 1
-    if last_row["RSI"] < 30:
+    if row["RSI"] < 30:
         score += 1
-    if last_row["Close"] > last_row["EMA50"]:
+    if row["Close"] < row["BB_Low"]:
         score += 1
-
-    return score
+    if row["ADX"] > 25:
+        score += 1
+    if row["Volumen"] > row["Volumen"].rolling(5).mean().iloc[-1]:
+        score += 1
+    if score >= 5:
+        return "BUY"
+    elif score <= 2:
+        return "SELL"
+    else:
+        return "HOLD"
 
 # -----------------------------
-# Übersicht erstellen
+# Daten aufbereiten
 # -----------------------------
-overview = []
-
-for symbol in symbols:
-    hist, name, last = load_market_data(symbol)
-    if hist is None:
-        continue
-
-    score = calculate_score(last)
-
-    trend = "Bullisch" if last["EMA20"] > last["EMA50"] else "Bärisch"
-
-    overview.append({
-        "Name": name,
-        "Symbol": symbol,
-        "Kurs": round(last["Close"], 2),
-        "Trend": trend,
-        "RSI": round(last["RSI"], 1),
-        "Score (0-5)": score
+results = []
+for sym in selected:
+    df = get_stock_data(sym)
+    df = calculate_indicators(df)
+    last_row = df.iloc[-1]
+    signal = generate_signal(last_row)
+    stop_loss = last_row["Close"] * 0.95
+    results.append({
+        "Symbol": sym,
+        "Name": aktien_dict[sym],
+        "Letzter Preis": last_row["Close"],
+        "Signal": signal,
+        "Stop-Loss": round(stop_loss,2),
+        "RSI": round(last_row["RSI"],2),
+        "MACD": round(last_row["MACD"],2)
     })
 
-overview_df = pd.DataFrame(overview)
+df_results = pd.DataFrame(results)
 
-# -----------------------------
-# Anzeige Übersicht
-# -----------------------------
-st.subheader("📈 Marktübersicht")
-
-if not overview_df.empty:
-    st.dataframe(overview_df.sort_values("Score (0-5)", ascending=False),
-                 use_container_width=True)
+# Symbol oder Name anzeigen
+if symbol_mode == "Ticker":
+    st.dataframe(df_results.drop("Name", axis=1))
 else:
-    st.warning("Keine Daten geladen.")
+    st.dataframe(df_results.drop("Symbol", axis=1))
 
 # -----------------------------
-# Detailbereich
+# News-Fenster
 # -----------------------------
-st.subheader("🔍 Detailanalyse")
+st.header("Aktien-News (komprimiert)")
+def fetch_news(symbol):
+    try:
+        url = f"https://finance.yahoo.com/quote/{symbol}"
+        r = requests.get(url)
+        if r.status_code == 200:
+            return f"Wichtige News für {symbol} geladen."
+        else:
+            return f"Keine News für {symbol} verfügbar."
+    except:
+        return "Fehler beim Laden der News."
 
-if symbols:
-    selected_symbol = st.selectbox("Asset auswählen", symbols)
-    hist, name, last = load_market_data(selected_symbol)
+for sym in selected:
+    st.subheader(f"{aktien_dict[sym]} ({sym})")
+    st.write(fetch_news(sym))
 
-    if hist is not None:
-
-        col1, col2 = st.columns([2,1])
-
-        with col1:
-            st.write(f"### {name}")
-            chart_df = hist[["Close", "EMA20", "EMA50"]]
-            st.line_chart(chart_df)
-
-        with col2:
-            score = calculate_score(last)
-            stop_loss = last["Close"] - last["ATR"] * 1.5
-            risk_pct = ((last["Close"] - stop_loss) / last["Close"]) * 100
-
-            st.metric("Aktueller Kurs", round(last["Close"],2))
-            st.metric("RSI", round(last["RSI"],1))
-            st.metric("Score", score)
-
-            st.write("### Stop-Loss Vorschlag")
-            st.write(f"{round(stop_loss,2)}")
-            st.write(f"Risiko: {round(risk_pct,2)} %")
-
-            if score >= 4:
-                st.success("Technisch stark")
-            elif score >= 2:
-                st.warning("Neutral / Beobachten")
-            else:
-                st.error("Technisch schwach")
+# -----------------------------
+# Auto-Refresh
+# -----------------------------
+if live_update:
+    import time
+    time.sleep(update_interval)
+    st.experimental_rerun()
