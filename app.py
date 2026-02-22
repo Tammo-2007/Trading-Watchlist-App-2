@@ -1,141 +1,102 @@
-# app.py
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from ta.trend import SMAIndicator, EMAIndicator, ADXIndicator, MACD
-from ta.momentum import RSIIndicator
-from ta.volatility import BollingerBands
+from ta.trend import SMAIndicator, EMAIndicator
+from textblob import TextBlob
 import requests
 
-st.set_page_config(page_title="Profi Aktien Dashboard", layout="wide")
+st.set_page_config(page_title="Trading Watchlist", layout="wide")
 
 # -----------------------------
-# Einstellungen / Schalter
+# Einstellungen
 # -----------------------------
-st.sidebar.header("Einstellungen")
-symbol_mode = st.sidebar.radio("Anzeige:", ["Ticker", "Name"])
-live_update = st.sidebar.checkbox("Live Update", value=True)
-update_interval = st.sidebar.slider("Update Intervall (Sekunden)", 30, 300, 60)
+st.title("📈 Trading Watchlist App")
 
-# Beispiel Aktienliste mit Namen
-aktien_dict = {
+# Ticker-Liste mit Anzeige-Namen
+tickers = {
     "RHM.DE": "Rheinmetall",
+    "HEI.DE": "Heidelberg Materials",
     "SAP.DE": "SAP",
-    "DAI.DE": "Daimler",
-    "BMW.DE": "BMW",
-    "ALV.DE": "Allianz"
+    # Hier weitere Ticker ergänzen
 }
-symbols = list(aktien_dict.keys())
+
+# Auswahl
+selected_tickers = st.multiselect(
+    "Wähle Aktien aus deiner Watchlist:",
+    options=list(tickers.keys()),
+    default=list(tickers.keys())
+)
+
+# Umschalter für Indikatoren
+show_sma = st.checkbox("SMA20 anzeigen", value=True)
+show_ema = st.checkbox("EMA50 anzeigen", value=True)
 
 # -----------------------------
-# Aktien auswählen
-# -----------------------------
-selected = st.multiselect("Aktien auswählen", symbols, default=symbols[:3])
-
-# -----------------------------
-# Daten abrufen
-# -----------------------------
-def get_stock_data(symbol):
-    df = yf.download(symbol, period="6mo", interval="1d")
-    df = df.dropna()
-    return df
-
-# -----------------------------
-# Technische Indikatoren berechnen
+# Funktion: Indikatoren berechnen
 # -----------------------------
 def calculate_indicators(df):
-    df["SMA20"] = SMAIndicator(df["Close"], 20).sma_indicator()
-    df["EMA20"] = EMAIndicator(df["Close"], 20).ema_indicator()
-    macd = MACD(df["Close"])
-    df["MACD"] = macd.macd()
-    df["MACD_Signal"] = macd.macd_signal()
-    df["RSI"] = RSIIndicator(df["Close"]).rsi()
-    bb = BollingerBands(df["Close"])
-    df["BB_High"] = bb.bollinger_hband()
-    df["BB_Low"] = bb.bollinger_lband()
-    df["ADX"] = ADXIndicator(df["High"], df["Low"], df["Close"]).adx()
-    df["Volumen"] = df["Volume"]
+    if "Close" not in df.columns:
+        raise ValueError("DataFrame muss eine 'Close'-Spalte enthalten.")
+
+    close_series = df["Close"]
+    if isinstance(close_series, pd.DataFrame):
+        close_series = close_series.iloc[:, 0]
+    close_series = close_series.squeeze()
+    if close_series.empty:
+        raise ValueError("Close-Daten sind leer.")
+
+    if show_sma:
+        df["SMA20"] = SMAIndicator(close_series, window=20).sma_indicator()
+    if show_ema:
+        df["EMA50"] = EMAIndicator(close_series, window=50).ema_indicator()
     return df
 
 # -----------------------------
-# Signalberechnung
+# Daten laden
 # -----------------------------
-def generate_signal(row):
-    score = 0
-    if row["Close"] > row["SMA20"]:
-        score += 1
-    if row["Close"] > row["EMA20"]:
-        score += 1
-    if row["MACD"] > row["MACD_Signal"]:
-        score += 1
-    if row["RSI"] < 30:
-        score += 1
-    if row["Close"] < row["BB_Low"]:
-        score += 1
-    if row["ADX"] > 25:
-        score += 1
-    if row["Volumen"] > row["Volumen"].rolling(5).mean().iloc[-1]:
-        score += 1
-    if score >= 5:
-        return "BUY"
-    elif score <= 2:
-        return "SELL"
-    else:
-        return "HOLD"
-
-# -----------------------------
-# Daten aufbereiten
-# -----------------------------
-results = []
-for sym in selected:
-    df = get_stock_data(sym)
+@st.cache_data
+def get_data(ticker):
+    df = yf.download(ticker, period="6mo", interval="1d")
     df = calculate_indicators(df)
-    last_row = df.iloc[-1]
-    signal = generate_signal(last_row)
-    stop_loss = last_row["Close"] * 0.95
-    results.append({
-        "Symbol": sym,
-        "Name": aktien_dict[sym],
-        "Letzter Preis": last_row["Close"],
-        "Signal": signal,
-        "Stop-Loss": round(stop_loss,2),
-        "RSI": round(last_row["RSI"],2),
-        "MACD": round(last_row["MACD"],2)
-    })
+    return df
 
-df_results = pd.DataFrame(results)
+data_dict = {}
+for ticker in selected_tickers:
+    data_dict[ticker] = get_data(ticker)
 
-# Symbol oder Name anzeigen
-if symbol_mode == "Ticker":
-    st.dataframe(df_results.drop("Name", axis=1))
-else:
-    st.dataframe(df_results.drop("Symbol", axis=1))
+# -----------------------------
+# Anzeige
+# -----------------------------
+for ticker in selected_tickers:
+    st.subheader(f"{tickers[ticker]} ({ticker})")
+    df = data_dict[ticker]
+    st.dataframe(df)
 
 # -----------------------------
 # News-Fenster
 # -----------------------------
-st.header("Aktien-News (komprimiert)")
-def fetch_news(symbol):
+st.subheader("📰 Wichtige Nachrichten")
+def get_news(ticker):
+    url = f"https://finance.yahoo.com/quote/{ticker}/news?p={ticker}"
+    r = requests.get(url)
+    df_news = pd.DataFrame(columns=["Titel", "Beschreibung"])
     try:
-        url = f"https://finance.yahoo.com/quote/{symbol}"
-        r = requests.get(url)
-        if r.status_code == 200:
-            return f"Wichtige News für {symbol} geladen."
-        else:
-            return f"Keine News für {symbol} verfügbar."
-    except:
-        return "Fehler beim Laden der News."
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(r.text, "html.parser")
+        articles = soup.find_all("li")
+        for a in articles[:5]:
+            title = a.get_text()
+            # Kurze Zusammenfassung
+            summary = TextBlob(title).sentences[0]
+            df_news = pd.concat([df_news, pd.DataFrame([{"Titel": title, "Beschreibung": summary}])])
+    except Exception as e:
+        df_news = pd.DataFrame([{"Titel": "Fehler beim Laden der News", "Beschreibung": str(e)}])
+    return df_news
 
-for sym in selected:
-    st.subheader(f"{aktien_dict[sym]} ({sym})")
-    st.write(fetch_news(sym))
+for ticker in selected_tickers:
+    st.markdown(f"**{tickers[ticker]}**")
+    news_df = get_news(ticker)
+    st.table(news_df)
 
-# -----------------------------
-# Auto-Refresh
-# -----------------------------
-if live_update:
-    import time
-    time.sleep(update_interval)
-    st.experimental_rerun()
+st.markdown("---")
+st.markdown("💡 Hinweis: Indikatoren dienen nur zur Unterstützung und ersetzen keine Anlageberatung.")
