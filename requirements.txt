@@ -1,5 +1,5 @@
-streamlit==1.54.0
-yfinance==1.2.0
-pandas==2.3.3
-numpy==2.4.2
-streamlit-autorefresh==0.2.2
+streamlit
+yfinance
+pandas
+numpy
+streamlit-autorefresh==1.0.1
