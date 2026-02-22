@@ -6,7 +6,7 @@ import altair as alt
 
 # --- Seite konfigurieren ---
 st.set_page_config(page_title="Trading Dashboard Profi", layout="wide")
-st.title("📊 Profi Trading Dashboard - Fertige Version Stabil")
+st.title("📊 Profi Trading Dashboard - Stabile Version")
 
 # --- Sidebar Einstellungen ---
 st.sidebar.header("Anzeigeoptionen")
@@ -59,6 +59,10 @@ def load_data(ticker):
     else:
         df["Volume"] = df["Volumen_Signal"] = 0
 
+    # Sicherstellen, dass alle numerischen Spalten float sind
+    for col in ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
     return df
 
 df = load_data(selected_ticker)
@@ -66,28 +70,14 @@ df_reset = df.reset_index()
 
 # --- Erweiterte Ampel ---
 def advanced_signal(row):
-    def get_float(val, default):
-        try:
-            return float(val) if pd.notna(val) else default
-        except:
-            return default
-
-    sma20 = get_float(row.get("SMA20"), 0)
-    sma50 = get_float(row.get("SMA50"), 0)
-    rsi = get_float(row.get("RSI"), 50)
-    macd = get_float(row.get("MACD"), 0)
-    macd_signal = get_float(row.get("MACD_signal"), 0)
-    volume = get_float(row.get("Volume"), 0)
-    vol_signal = get_float(row.get("Volumen_Signal"), 0)
-
     score = 0
-    if sma20 > sma50: score += 1
-    elif sma20 < sma50: score -= 1
-    if rsi < 30: score += 1
-    elif rsi > 70: score -= 1
-    if macd > macd_signal: score += 1
-    elif macd < macd_signal: score -= 1
-    if volume > 1.5 * vol_signal: score += 0.5
+    if row["SMA20"] > row["SMA50"]: score += 1
+    elif row["SMA20"] < row["SMA50"]: score -= 1
+    if row["RSI"] < 30: score += 1
+    elif row["RSI"] > 70: score -= 1
+    if row["MACD"] > row["MACD_signal"]: score += 1
+    elif row["MACD"] < row["MACD_signal"]: score -= 1
+    if row["Volume"] > 1.5 * row["Volumen_Signal"]: score += 0.5
 
     if score >= 2: return "Stark Kauf"
     elif score <= -2: return "Stark Verkauf"
@@ -99,24 +89,15 @@ signal_map = {"Stark Kauf": 2, "Halten": 1, "Stark Verkauf": 0}
 
 # --- Prognose ---
 def forecast_trend(df):
-    last_df = df.tail(5)
+    last_df = df.tail(5).copy()
     score = 0
     for _, row in last_df.iterrows():
-        # sichere Extraktion als float
-        sma20 = 0 if pd.isna(row["SMA20"]) else float(row["SMA20"])
-        sma50 = 0 if pd.isna(row["SMA50"]) else float(row["SMA50"])
-        rsi = 50 if pd.isna(row["RSI"]) else float(row["RSI"])
-        macd = 0 if pd.isna(row["MACD"]) else float(row["MACD"])
-        macd_signal = 0 if pd.isna(row["MACD_signal"]) else float(row["MACD_signal"])
-        volume = 0 if pd.isna(row["Volume"]) else float(row["Volume"])
-        vol_signal = 0 if pd.isna(row["Volumen_Signal"]) else float(row["Volumen_Signal"])
+        score += 1 if row["SMA20"] > row["SMA50"] else -1
+        score += 1 if row["RSI"] < 30 else (-1 if row["RSI"] > 70 else 0)
+        score += 1 if row["MACD"] > row["MACD_signal"] else -1
+        score += 0.5 if row["Volume"] > 1.5 * row["Volumen_Signal"] else 0
 
-        score += 1 if sma20 > sma50 else -1
-        score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
-        score += 1 if macd > macd_signal else -1
-        score += 0.5 if volume > 1.5 * vol_signal else 0
-
-    avg_score = score / max(len(last_df), 1)
+    avg_score = score / max(len(last_df),1)
     if avg_score >= 1: 
         return "📈 Wahrscheinlich steigend"
     elif avg_score <= -1: 
