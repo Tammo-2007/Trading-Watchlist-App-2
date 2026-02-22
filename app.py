@@ -27,17 +27,20 @@ if st.sidebar.button("Aktie hinzufügen"):
             "Status": new_status
         })
 
-# Aktienliste mit Lösch-Button
+# --- Sidebar: Aktienliste mit Lösch-Button ---
 st.sidebar.subheader("Aktuelle Aktien:")
-to_delete = None
+indices_to_delete = []
 for i, a in enumerate(st.session_state.aktien_liste):
     cols = st.sidebar.columns([4,1])
     cols[0].write(f"{a['Ticker']} → {a['Name']} ({a['Status']})")
     if cols[1].button("🗑️", key=f"del_{i}"):
-        to_delete = i
-if to_delete is not None:
-    st.session_state.aktien_liste.pop(to_delete)
-    st.experimental_rerun()  # App neu laden, damit Löschung sofort sichtbar
+        indices_to_delete.append(i)
+
+# Löschung außerhalb der Schleife durchführen
+if indices_to_delete:
+    for i in sorted(indices_to_delete, reverse=True):
+        st.session_state.aktien_liste.pop(i)
+    st.experimental_rerun()
 
 # Anzeigeoptionen Sidebar
 st.sidebar.header("Anzeigeoptionen")
@@ -54,7 +57,6 @@ def load_data(ticker):
         df = yf.download(ticker, period="6mo", interval="1d")
         if "Close" not in df.columns or df.empty:
             return pd.DataFrame()
-        # Close Series sauber
         close_series = pd.to_numeric(df["Close"], errors='coerce').fillna(method='ffill').fillna(0)
         df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
         df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
@@ -64,7 +66,6 @@ def load_data(ticker):
         df["MACD_signal"] = macd.macd_signal()
         df["Volume"] = pd.to_numeric(df.get("Volume", 0), errors='coerce').fillna(0)
         df["Volumen_Signal"] = df["Volume"].rolling(20).mean().fillna(0)
-        # Alles zu float, NaN -> 0
         for col in ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
