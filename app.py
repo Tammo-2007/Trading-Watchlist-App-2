@@ -42,23 +42,29 @@ show_markers = st.sidebar.checkbox("Signale im Chart anzeigen", value=True)
 # --- Funktion: Daten laden ---
 @st.cache_data
 def load_data(ticker):
-    df = yf.download(ticker, period="6mo", interval="1d")
-    if "Close" not in df.columns: return pd.DataFrame()
-    close_series = df["Close"].copy().dropna()
-    df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
-    df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
-    df["RSI"] = ta.momentum.RSIIndicator(close_series, 14).rsi()
-    macd = ta.trend.MACD(close_series)
-    df["MACD"] = macd.macd()
-    df["MACD_signal"] = macd.macd_signal()
-    df["Volume"] = df.get("Volume", 0)
-    df["Volumen_Signal"] = df["Volume"].rolling(20).mean()
-    # alle Spalten zu float konvertieren, NaN → 0
-    for col in ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]:
-        if col in df.columns and isinstance(df[col], pd.Series):
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        else: df[col] = 0
-    return df
+    try:
+        df = yf.download(ticker, period="6mo", interval="1d")
+        if "Close" not in df.columns or df.empty:
+            return pd.DataFrame()
+        # Close Series sauber
+        close_series = pd.to_numeric(df["Close"], errors='coerce').fillna(method='ffill').fillna(0)
+        df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
+        df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
+        df["RSI"] = ta.momentum.RSIIndicator(close_series, 14).rsi()
+        macd = ta.trend.MACD(close_series)
+        df["MACD"] = macd.macd()
+        df["MACD_signal"] = macd.macd_signal()
+        df["Volume"] = pd.to_numeric(df.get("Volume", 0), errors='coerce').fillna(0)
+        df["Volumen_Signal"] = df["Volume"].rolling(20).mean().fillna(0)
+        # Alles zu float, NaN -> 0
+        for col in ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            else:
+                df[col] = 0
+        return df
+    except:
+        return pd.DataFrame()
 
 # --- Erweiterte Ampel ---
 def advanced_signal(row):
