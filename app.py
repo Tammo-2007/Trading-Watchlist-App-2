@@ -6,7 +6,7 @@ import altair as alt
 
 # --- Seite konfigurieren ---
 st.set_page_config(page_title="Trading Dashboard Profi", layout="wide")
-st.title("📊 Profi Trading Dashboard - Fertige Version (robust)")
+st.title("📊 Profi Trading Dashboard - Fertige Version Stabil")
 
 # --- Sidebar Einstellungen ---
 st.sidebar.header("Anzeigeoptionen")
@@ -66,7 +66,6 @@ df_reset = df.reset_index()
 
 # --- Erweiterte Ampel ---
 def advanced_signal(row):
-    # Robuste Extraktion als float
     def get_float(val, default):
         try:
             return float(val) if pd.notna(val) else default
@@ -103,13 +102,14 @@ def forecast_trend(df):
     last_df = df.tail(5)
     score = 0
     for _, row in last_df.iterrows():
-        sma20 = float(row.get("SMA20", 0)) if pd.notna(row.get("SMA20", 0)) else 0
-        sma50 = float(row.get("SMA50", 0)) if pd.notna(row.get("SMA50", 0)) else 0
-        rsi = float(row.get("RSI", 50)) if pd.notna(row.get("RSI", 50)) else 50
-        macd = float(row.get("MACD", 0)) if pd.notna(row.get("MACD", 0)) else 0
-        macd_signal = float(row.get("MACD_signal", 0)) if pd.notna(row.get("MACD_signal", 0)) else 0
-        volume = float(row.get("Volume", 0)) if pd.notna(row.get("Volume", 0)) else 0
-        vol_signal = float(row.get("Volumen_Signal", 0)) if pd.notna(row.get("Volumen_Signal", 0)) else 0
+        # sichere Extraktion als float
+        sma20 = 0 if pd.isna(row["SMA20"]) else float(row["SMA20"])
+        sma50 = 0 if pd.isna(row["SMA50"]) else float(row["SMA50"])
+        rsi = 50 if pd.isna(row["RSI"]) else float(row["RSI"])
+        macd = 0 if pd.isna(row["MACD"]) else float(row["MACD"])
+        macd_signal = 0 if pd.isna(row["MACD_signal"]) else float(row["MACD_signal"])
+        volume = 0 if pd.isna(row["Volume"]) else float(row["Volume"])
+        vol_signal = 0 if pd.isna(row["Volumen_Signal"]) else float(row["Volumen_Signal"])
 
         score += 1 if sma20 > sma50 else -1
         score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
@@ -117,9 +117,12 @@ def forecast_trend(df):
         score += 0.5 if volume > 1.5 * vol_signal else 0
 
     avg_score = score / max(len(last_df), 1)
-    if avg_score >= 1: return "📈 Wahrscheinlich steigend"
-    elif avg_score <= -1: return "📉 Wahrscheinlich fallend"
-    else: return "➡️ Seitwärts"
+    if avg_score >= 1: 
+        return "📈 Wahrscheinlich steigend"
+    elif avg_score <= -1: 
+        return "📉 Wahrscheinlich fallend"
+    else: 
+        return "➡️ Seitwärts"
 
 tendenz = forecast_trend(df)
 color_map_forecast = {
