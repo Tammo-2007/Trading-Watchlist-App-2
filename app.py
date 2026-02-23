@@ -2,7 +2,6 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import altair as alt
-from datetime import datetime
 import uuid
 
 # --- Page Config ---
@@ -15,29 +14,13 @@ if "portfolio" not in st.session_state:
         columns=["ID","Ticker","Kaufpreis","Stückzahl","Stop-Loss","Take-Profit","Status","Gebühr"]
     )
 
-# --- Demo-Aktien einfügen, wenn Portfolio leer ---
+# --- Demo-Aktien einfügen, falls leer ---
 if st.session_state.portfolio.empty:
     demo_data = [
-        {
-            "ID": str(uuid.uuid4()),
-            "Ticker": "RHM.DE",
-            "Kaufpreis": 50.0,
-            "Stückzahl": 10,
-            "Stop-Loss": 45.0,
-            "Take-Profit": 60.0,
-            "Status": "Besitzt",
-            "Gebühr": 1.0
-        },
-        {
-            "ID": str(uuid.uuid4()),
-            "Ticker": "SAP.DE",
-            "Kaufpreis": 120.0,
-            "Stückzahl": 5,
-            "Stop-Loss": 110.0,
-            "Take-Profit": 140.0,
-            "Status": "Beobachtung",
-            "Gebühr": 1.0
-        }
+        {"ID": str(uuid.uuid4()), "Ticker": "RHM.DE", "Kaufpreis": 50, "Stückzahl": 10,
+         "Stop-Loss": 45, "Take-Profit": 60, "Status": "Besitzt", "Gebühr": 1.0},
+        {"ID": str(uuid.uuid4()), "Ticker": "SAP.DE", "Kaufpreis": 120, "Stückzahl": 5,
+         "Stop-Loss": 110, "Take-Profit": 140, "Status": "Beobachtung", "Gebühr": 1.0}
     ]
     st.session_state.portfolio = pd.DataFrame(demo_data)
 
@@ -51,12 +34,20 @@ with tab1:
 
     # --- Aktuelle Preise abrufen ---
     tickers = df["Ticker"].unique().tolist()
-    data = yf.download(tickers, period="5d", interval="1d", progress=False)["Close"]
-    if isinstance(data, pd.Series):
-        latest_prices = pd.Series({tickers[0]: data[-1]})
+    if tickers:
+        try:
+            data = yf.download(tickers, period="5d", interval="1d", progress=False)["Close"]
+            if isinstance(data, pd.Series):
+                latest_prices = pd.Series({tickers[0]: data[-1]})
+            else:
+                latest_prices = data.iloc[-1]
+            df["Aktueller Preis"] = df["Ticker"].map(latest_prices)
+        except:
+            df["Aktueller Preis"] = 0.0
     else:
-        latest_prices = data.iloc[-1]
-    df["Aktueller Preis"] = df["Ticker"].map(latest_prices)
+        df["Aktueller Preis"] = 0.0
+
+    # --- Positionswert & Gewinn/Verlust ---
     df["Positionswert"] = df["Aktueller Preis"] * df["Stückzahl"] - df["Gebühr"]
     df["Gewinn/Verlust"] = df["Positionswert"] - (df["Kaufpreis"] * df["Stückzahl"] + df["Gebühr"])
 
@@ -75,16 +66,15 @@ with tab1:
     # --- Farbige Signale ---
     def color_signal(val):
         if val == "SELL":
-            color = "background-color: #ff4d4d; color:white"
+            return "background-color: #ff4d4d; color:white"
         elif val == "Take-Profit":
-            color = "background-color: #4caf50; color:white"
+            return "background-color: #4caf50; color:white"
         else:
-            color = "background-color: #2196f3; color:white"
-        return color
+            return "background-color: #2196f3; color:white"
 
     st.dataframe(df.style.applymap(color_signal, subset=["Signal"]), height=300)
 
-    # --- Löschen mit UUID ---
+    # --- Aktien löschen ---
     st.markdown("### Aktien löschen")
     delete_options = df[["ID","Ticker"]].apply(lambda x: f"{x['Ticker']} ({x['ID'][:6]})", axis=1).tolist()
     delete_choice = st.selectbox("Wähle Aktie zum Löschen", [""] + delete_options)
@@ -132,9 +122,7 @@ with tab3:
         period_map = {"1d":"7d","1wk":"6mo","1mo":"2y","1y":"5y"}
         interval_map = {"1d":"15m","1wk":"1d","1mo":"1d","1y":"1wk"}
         data_hist = yf.download(selected_ticker, period=period_map[timeframe], interval=interval_map[timeframe], progress=False)
-        if data_hist.empty:
-            st.error("Chart konnte nicht geladen werden.")
-        else:
+        if not data_hist.empty:
             data_hist["SMA20"] = data_hist["Close"].rolling(20).mean()
             data_hist["SMA50"] = data_hist["Close"].rolling(50).mean()
             df_chart = data_hist.reset_index()
@@ -147,3 +135,5 @@ with tab3:
             ).resolve_scale(y="shared").properties(height=400)
             st.altair_chart(chart, use_container_width=True)
             st.markdown("**Legende:** Blau = Close, Orange = SMA20, Grün = SMA50")
+        else:
+            st.error("Chart konnte nicht geladen werden.")
