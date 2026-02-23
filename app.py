@@ -27,7 +27,7 @@ if st.session_state.portfolio.empty:
 # --- Tabs ---
 tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie hinzufügen", "📈 Kurs & Chart"])
 
-# --- Robuste Preisabfrage pro Ticker ---
+# --- Preis pro Ticker abrufen ---
 def get_latest_price(ticker):
     try:
         data = yf.download(ticker, period="5d", interval="1d", progress=False)
@@ -38,13 +38,13 @@ def get_latest_price(ticker):
     except:
         return 0.0
 
-# --- Robuste Sparkline-Funktion ---
+# --- Sparkline abrufen ---
 def get_sparkline_data(ticker, points=10):
     try:
         data = yf.download(ticker, period="1mo", interval="1d", progress=False)
         if "Close" in data and not data.empty:
-            series = data["Close"].tail(points)
-            return series.astype(float)
+            series = data["Close"].tail(points).fillna(0).astype(float)
+            return series
         else:
             return pd.Series([0]*points)
     except:
@@ -84,8 +84,9 @@ with tab1:
 
                     # Sparkline Chart
                     spark_data = get_sparkline_data(row['Ticker'])
-                    if not spark_data.empty and spark_data.sum() > 0:
+                    if len(spark_data) > 0 and spark_data.sum() > 0:
                         spark_df = spark_data.reset_index()
+                        spark_df.columns = ["index","Close"]
                         spark_chart = alt.Chart(spark_df).mark_line(color=spark_color, strokeWidth=2).encode(
                             x='index',
                             y='Close:Q'
@@ -104,9 +105,7 @@ with tab1:
                             <p>Aktueller Preis: <b>{price_display}</b></p>
                             <p>Positionswert: <b>{positionswert:.2f} €</b></p>
                             <p style="{pnl_style}">Gewinn/Verlust: <b>{gewinn_verlust:.2f} €</b></p>
-                            <p>
-                                📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €
-                            </p>
+                            <p>📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €</p>
                         </div>
                         """,
                         unsafe_allow_html=True
