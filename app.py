@@ -4,19 +4,17 @@ import yfinance as yf
 import altair as alt
 import os
 import json
-import datetime
 
-# --- Optional RSS ---
-try:
-    import feedparser
-    FEED_AVAILABLE = True
-except ImportError:
-    FEED_AVAILABLE = False
+st.set_page_config(layout="wide")
 
-# --- Portfolio-Datei ---
+# ==============================
+# CONFIG
+# ==============================
 PORTFOLIO_FILE = "portfolio.json"
 
-# --- Session State initialisieren ---
+# ==============================
+# LOAD PORTFOLIO
+# ==============================
 if "aktien_liste" not in st.session_state:
     if os.path.exists(PORTFOLIO_FILE):
         with open(PORTFOLIO_FILE, "r") as f:
@@ -24,120 +22,113 @@ if "aktien_liste" not in st.session_state:
     else:
         st.session_state.aktien_liste = []
 
-# --- Portfolio speichern ---
 def save_portfolio():
-    with open(PORTFOLIO_FILE,"w") as f:
+    with open(PORTFOLIO_FILE, "w") as f:
         json.dump(st.session_state.aktien_liste, f)
 
-# --- Header ---
-st.header("📊 Kompaktes Trading Dashboard – Alles auf einen Blick")
+# ==============================
+# HEADER
+# ==============================
+st.title("📊 Trading Dashboard Pro")
 
-# --- Signal Einstellungen ---
-st.subheader("🔧 Einstellungen für Signale")
-SMA20_period = st.slider("SMA20 Periode", 5, 50, 20, help="Kurzfristiger gleitender Durchschnitt")
-SMA50_period = st.slider("SMA50 Periode", 10, 200, 50, help="Langfristiger gleitender Durchschnitt")
-vol_factor = st.slider("Volumen Faktor", 0.5, 3.0, 1.0, help="Multiplikator für Volumensignale")
-RSI_weight = st.slider("RSI Gewicht", 0, 2, 1, help="Gewichtung RSI im Score")
-MACD_weight = st.slider("MACD Gewicht", 0, 2, 1, help="Gewichtung MACD im Score")
+# ==============================
+# PORTFOLIO ADD
+# ==============================
+st.subheader("💼 Aktie hinzufügen")
 
-# --- Portfolio verwalten ---
-st.subheader("💼 Portfolio verwalten")
-with st.form("portfolio_form"):
-    ticker_or_name = st.text_input("Ticker oder Name", help="Trage Ticker z.B. RHM oder RHM.DE oder den Namen ein")
-    name_optional = st.text_input("Name (optional)")
+with st.form("add_form"):
+    ticker_input = st.text_input("Ticker (z.B. RHM oder RHM.DE)")
     status = st.selectbox("Status", ["Besitzt", "Beobachtung"])
-    add_button = st.form_submit_button("Hinzufügen")
+    submit = st.form_submit_button("Hinzufügen")
 
-# --- Aktie hinzufügen ---
-if add_button and ticker_or_name:
-    ticker_clean = ticker_or_name.upper().strip()
-    found = any(a["ticker"].upper() == ticker_clean for a in st.session_state.aktien_liste)
-    if not found:
-        st.session_state.aktien_liste.append({
-            "ticker": ticker_clean,
-            "name": name_optional,
-            "status": status
-        })
-        save_portfolio()
-        st.success(f"Aktie {ticker_clean} wurde hinzugefügt!")
-        st.experimental_rerun()
+if submit and ticker_input:
 
-# --- Portfolio Übersicht ---
-st.subheader("📋 Portfolio")
-if st.session_state.aktien_liste:
-    for i, a in enumerate(st.session_state.aktien_liste):
-        col1, col2, col3 = st.columns([3,1,1])
-        display_name = a["name"] if a["name"] else a["ticker"]
-        col1.text(f"{display_name} ({a['ticker']})")
-        col2.text("🟢 Besitzt" if a["status"]=="Besitzt" else "🟡 Beobachtung")
-        if col3.button("❌", key=f"del_{i}"):
-            st.session_state.aktien_liste.pop(i)
+    ticker = ticker_input.upper().strip()
+
+    # Deutsche Aktien automatisch .DE
+    if "." not in ticker and len(ticker) <= 5:
+        ticker_test = ticker + ".DE"
+    else:
+        ticker_test = ticker
+
+    # Prüfen ob Yahoo Daten liefert
+    test_df = yf.download(ticker_test, period="5d", interval="1d")
+
+    if test_df.empty:
+        st.error("Ticker ungültig oder keine Daten verfügbar.")
+    else:
+        exists = any(a["ticker"] == ticker_test for a in st.session_state.aktien_liste)
+        if not exists:
+            st.session_state.aktien_liste.append({
+                "ticker": ticker_test,
+                "status": status
+            })
             save_portfolio()
-            st.experimental_rerun()
-else:
-    st.info("Keine Aktien im Portfolio. Bitte füge zuerst eine Aktie hinzu.")
+            st.success(f"{ticker_test} hinzugefügt.")
 
-# --- Aktien auswählen ---
+# ==============================
+# PORTFOLIO TABLE
+# ==============================
+st.subheader("📋 Portfolio")
+
 if st.session_state.aktien_liste:
-    selected_ticker = st.selectbox(
-        "Wähle eine Aktie",
+
+    table_data = []
+
+    for i, a in enumerate(st.session_state.aktien_liste):
+
+        df = yf.download(a["ticker"], period="2d", interval="1d")
+
+        if not df.empty:
+            last = df["Close"].iloc[-1]
+            prev = df["Close"].iloc[-2] if len(df) > 1 else last
+            change_pct = ((last - prev) / prev) * 100
+        else:
+            last = None
+            change_pct = None
+
+        table_data.append({
+            "Ticker": a["ticker"],
+            "Status": a["status"],
+            "Preis": round(last, 2) if last else None,
+            "Tages %": round(change_pct, 2) if change_pct else None
+        })
+
+    df_table = pd.DataFrame(table_data)
+    st.dataframe(df_table, use_container_width=True)
+
+else:
+    st.info("Noch keine Aktien im Portfolio.")
+
+# ==============================
+# DETAILANSICHT
+# ==============================
+if st.session_state.aktien_liste:
+
+    selected = st.selectbox(
+        "📈 Detailansicht wählen",
         [a["ticker"] for a in st.session_state.aktien_liste]
     )
 
-    # --- Kursdaten laden mit Fallback ---
-    @st.cache_data
-    def load_data(ticker):
-        ticker = ticker.upper().strip()
-        df = yf.download(ticker, period="6mo", interval="1d")
-        if df.empty and "." not in ticker and len(ticker)<=5:
-            df = yf.download(ticker+".DE", period="6mo", interval="1d")
-        if df.empty:
-            return None
-        df.reset_index(inplace=True)
-        df["SMA20"] = df["Close"].rolling(SMA20_period).mean()
-        df["SMA50"] = df["Close"].rolling(SMA50_period).mean()
-        return df
+    df = yf.download(selected, period="6mo", interval="1d")
 
-    df = load_data(selected_ticker)
-    st.subheader("💰 Aktueller Kurs & Trend")
+    if not df.empty:
 
-    if df is None or df.empty or "Close" not in df.columns:
-        st.warning(f"Für {selected_ticker} sind noch keine Kursdaten verfügbar oder Ticker ungültig.")
-    else:
-        try:
-            last_price = df["Close"].iloc[-1]
-            st.text(f"{selected_ticker} Preis: {last_price:.2f} €")
-        except Exception as e:
-            st.warning(f"Kursdaten konnten nicht angezeigt werden: {e}")
+        df["SMA20"] = df["Close"].rolling(20).mean()
+        df["SMA50"] = df["Close"].rolling(50).mean()
 
-        # --- Chart letzte 3 Monate ---
-        end_date = df["Date"].max()
-        start_date = end_date - pd.Timedelta(days=90)
-        df_plot = df[(df["Date"] >= start_date) & (df["Date"] <= end_date)]
-        chart = alt.Chart(df_plot).transform_fold(
-            ["Close","SMA20","SMA50"], as_=["Serie","Wert"]
+        chart = alt.Chart(df.reset_index()).transform_fold(
+            ["Close", "SMA20", "SMA50"],
+            as_=["Line", "Value"]
         ).mark_line().encode(
-            x=alt.X("Date:T", title="Datum", axis=alt.Axis(labelAngle=-45)),
-            y=alt.Y("Wert:Q", title="Preis"),
-            color="Serie:N",
-            tooltip=["Date:T","Serie:N","Wert:Q"]
+            x="Date:T",
+            y="Value:Q",
+            color="Line:N"
         ).properties(
-            width=800,
             height=400
         )
-        st.altair_chart(chart, use_container_width=False)
 
-    # --- RSS-News ---
-    st.subheader("📰 RSS-News")
-    if FEED_AVAILABLE:
-        feeds = [
-            "https://www.finanzfluss.de/feed/",
-            "https://www.finanztipps.de/feed/",
-            "https://www.focus.de/finanzen/rss.xml"
-        ]
-        for feed_url in feeds:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:5]:
-                st.markdown(f"- [{entry.title}]({entry.link})")
+        st.altair_chart(chart, use_container_width=True)
+
     else:
-        st.info("RSS-News nicht verfügbar (installiere feedparser)")
+        st.warning("Keine historischen Daten verfügbar.")
