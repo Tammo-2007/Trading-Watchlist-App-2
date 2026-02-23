@@ -27,6 +27,7 @@ def get_company_name(ticker):
 
 @st.cache_data
 def load_data(ticker, interval="1d", period="6mo"):
+    """Historische Daten für Charts + Signale"""
     try:
         df = yf.Ticker(ticker).history(period=period, interval=interval)
         if df.empty or "Close" not in df:
@@ -41,6 +42,18 @@ def load_data(ticker, interval="1d", period="6mo"):
         return df
     except:
         return pd.DataFrame()
+
+@st.cache_data
+def load_today_price(ticker):
+    """Aktueller Intraday-Kurs für heute"""
+    try:
+        df = yf.Ticker(ticker).history(period="1d", interval="1m")
+        if df.empty:
+            return None
+        last_row = df.iloc[-1]
+        return last_row["Close"]
+    except:
+        return None
 
 def advanced_signal(row):
     try:
@@ -121,14 +134,16 @@ for i, a in enumerate(st.session_state.aktien_liste):
     cols = st.columns([0.05,0.4,0.2,0.15,0.2])
     selected = cols[0].checkbox("", key=f"chk_{i}")
     status_color = "🟢" if a["Status"]=="Besitzt" else "🟡"
-    try:
-        df_test = yf.Ticker(a["Ticker"]).history(period="1d")
-        has_data = not df_test.empty
-    except:
-        has_data = False
+    # Prüfen, ob aktuelle Daten verfügbar
+    price = load_today_price(a["Ticker"])
+    has_data = price is not None
     label_color = "red" if not has_data else "black"
     cols[1].markdown(f"<span style='color:{label_color}'>{a['Name']} ({a['Ticker']})</span>", unsafe_allow_html=True)
     cols[2].write(f"{status_color} {a['Status']}")
+    if has_data:
+        cols[3].write(f"Aktueller Kurs: {price:.2f} €")
+    else:
+        cols[3].write("Keine aktuellen Daten")
     delete = cols[4].button("Löschen", key=f"del_{i}")
     if delete:
         to_delete.append(i)
@@ -151,12 +166,16 @@ if st.session_state.aktien_liste:
     )
 
     df_selected = load_data(selected_ticker, interval=interval, period=period)
+    current_price = load_today_price(selected_ticker)
+    if current_price:
+        st.subheader(f"💰 Aktueller Kurs: {current_price:.2f} €")
+
     if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
         df_reset = df_selected.reset_index()
         tendenz = forecast_trend(df_selected)
 
-        st.subheader(f"📈 Kurs + Signale für {selected_ticker}")
+        st.subheader(f"📈 Historische Charts + Signale für {selected_ticker}")
         chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T", y="Close:Q")
         chart += alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T", y="SMA20:Q")
         chart += alt.Chart(df_reset).mark_line(color="purple").encode(x="Date:T", y="SMA50:Q")
@@ -169,6 +188,6 @@ if st.session_state.aktien_liste:
         st.altair_chart(chart.interactive(), use_container_width=True)
         st.write("Trend:", tendenz)
     else:
-        st.warning(f"Für diese Aktie sind keine aktuellen Kursdaten verfügbar oder Ticker ungültig. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
+        st.warning(f"Für diese Aktie sind keine historischen Kursdaten verfügbar. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
 else:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
