@@ -94,13 +94,13 @@ if st.session_state.aktien_liste:
         # Historischer Chart
         df_reset = df.reset_index()
         df_plot = df_reset[["Date","Close","SMA20","SMA50"]].dropna()
-        if not df_plot.empty:
+        if not df_plot.empty and len(df_plot)>1:
             chart = alt.Chart(df_plot).transform_fold(
                 ["Close","SMA20","SMA50"], as_=["Serie","Wert"]
             ).mark_line().encode(
-                x="Date",
-                y="Wert",
-                color="Serie"
+                x="Date:T",
+                y="Wert:Q",
+                color="Serie:N"
             )
             st.altair_chart(chart, use_container_width=True)
         else:
