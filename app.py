@@ -5,6 +5,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import altair as alt
+import feedparser
 import os
 import json
 
@@ -167,7 +168,7 @@ else:
     st.info("Noch keine Aktien im Portfolio.")
 
 # ==============================
-# DETAILCHART
+# DETAILCHART & RSS NEWS
 # ==============================
 if st.session_state.portfolio:
     selected = st.selectbox(
@@ -190,3 +191,22 @@ if st.session_state.portfolio:
         st.altair_chart(chart, use_container_width=True)
     else:
         st.warning("Keine historischen Daten verfügbar.")
+
+    # ==============================
+    # RSS NEWS
+    # ==============================
+    st.subheader(f"📰 RSS-News für {selected}")
+    rss_feeds = [
+        f"https://finance.yahoo.com/rss/headline?s={selected}",
+        f"https://www.finanzen.net/rss/{selected}",
+        f"https://www.finanztipps.de/rss"
+    ]
+    news_found = False
+    for feed_url in rss_feeds:
+        feed = feedparser.parse(feed_url)
+        if feed.entries:
+            news_found = True
+            for entry in feed.entries[:5]:
+                st.markdown(f"- [{entry.title}]({entry.link})")
+    if not news_found:
+        st.info("Keine RSS-News verfügbar.")
