@@ -109,16 +109,22 @@ if st.sidebar.button("Aktie hinzufügen"):
     else:
         t = normalize_ticker(new_ticker) if new_ticker else ""
         n = new_name if new_name else (get_company_name(t) if t else "Unbekannt")
-        st.session_state.aktien_liste.append({
-            "Ticker": t,
-            "Name": n,
-            "Status": new_status
-        })
+        # Doppelungen vermeiden
+        exists = any(a["Ticker"]==t for a in st.session_state.aktien_liste)
+        if not exists:
+            st.session_state.aktien_liste.append({
+                "Ticker": t,
+                "Name": n,
+                "Status": new_status
+            })
+        else:
+            st.sidebar.info("Ticker bereits in der Liste")
 
 # --- Portfolio-Übersicht interaktiv ---
 st.header("📋 Portfolio-Übersicht")
 to_delete = []
-for i,a in enumerate(st.session_state.aktien_liste):
+
+for i, a in enumerate(st.session_state.aktien_liste):
     cols = st.columns([0.05,0.4,0.2,0.15,0.2])
     selected = cols[0].checkbox("", key=f"chk_{i}")
     status_color = "🟢" if a["Status"]=="Besitzt" else "🟡"
@@ -146,8 +152,8 @@ if st.session_state.aktien_liste:
         format_func=lambda x: display_labels[ticker_options.index(x)]
     )
 
-    df_selected = load_data(selected_ticker) if ticker_valid(selected_ticker) else pd.DataFrame()
-    if not df_selected.empty:
+    if ticker_valid(selected_ticker):
+        df_selected = load_data(selected_ticker)
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
         df_reset = df_selected.reset_index()
         tendenz = forecast_trend(df_selected)
@@ -163,7 +169,8 @@ if st.session_state.aktien_liste:
             tooltip=["Date:T","Close:Q","Advanced_Signal:N"]
         )
         st.altair_chart(chart.interactive(), use_container_width=True)
+        st.write("Trend:", tendenz)
     else:
-        st.warning(f"Keine Kursdaten für {selected_ticker}. Ticker prüfen oder Daten evtl. nicht verfügbar.")
+        st.warning(f"Für diese Aktie sind noch keine Kursdaten verfügbar oder Ticker ungültig.")
 else:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
