@@ -36,7 +36,6 @@ for i, a in enumerate(st.session_state.aktien_liste):
     if cols[1].button("🗑️", key=f"del_{i}"):
         indices_to_delete.append(i)
 
-# Löschung außerhalb der Schleife durchführen
 if indices_to_delete:
     for i in sorted(indices_to_delete, reverse=True):
         st.session_state.aktien_liste.pop(i)
@@ -115,26 +114,42 @@ def forecast_trend(df):
 # --- Portfolio-Übersicht ---
 st.header("📋 Portfolio-Übersicht")
 portfolio_data = []
+
 for a in st.session_state.aktien_liste:
     ticker, name, status = a["Ticker"], a["Name"], a["Status"]
-    if not ticker: continue
-    df = load_data(ticker)
-    if df.empty: continue
-    df["Advanced_Signal"] = df.apply(advanced_signal, axis=1)
-    trend = forecast_trend(df)
-    last_signal = df["Advanced_Signal"].iloc[-1]
-    portfolio_data.append({"Ticker": ticker, "Name": name, "Status": status, "Signal": last_signal, "Trend": trend})
+    trend = "Daten fehlen"
+    last_signal = "–"
+    try:
+        if ticker:
+            df = load_data(ticker)
+            if not df.empty:
+                df["Advanced_Signal"] = df.apply(advanced_signal, axis=1)
+                trend = forecast_trend(df)
+                last_signal = df["Advanced_Signal"].iloc[-1]
+    except:
+        pass
+    portfolio_data.append({
+        "Ticker": ticker if ticker else name,
+        "Name": name,
+        "Status": status,
+        "Signal": last_signal,
+        "Trend": trend
+    })
 
 portfolio_df = pd.DataFrame(portfolio_data)
+
+# Farben nach Status und Signalen
 status_color = {"Besitzt": "#4CAF50", "Beobachtung": "#2196F3"}
-signal_color = {"Stark Kauf": "#4CAF50", "Halten": "#FFC107", "Stark Verkauf": "#F44336"}
-forecast_color = {"📈 Wahrscheinlich steigend": "#4CAF50", "➡️ Seitwärts": "#FFC107", "📉 Wahrscheinlich fallend": "#F44336"}
+signal_color = {"Stark Kauf": "#4CAF50", "Halten": "#FFC107", "Stark Verkauf": "#F44336", "–":"#CCCCCC"}
+forecast_color = {"📈 Wahrscheinlich steigend": "#4CAF50", "➡️ Seitwärts": "#FFC107", "📉 Wahrscheinlich fallend": "#F44336", "Daten fehlen":"#CCCCCC"}
 
 def color_row(row):
-    return [f'background-color: {status_color.get(row["Status"],"#FFFFFF")}' if col=="Status" else
-            f'background-color: {signal_color.get(row["Signal"],"#FFFFFF")}' if col=="Signal" else
-            f'background-color: {forecast_color.get(row["Trend"],"#FFFFFF")}' if col=="Trend" else ""
-            for col in portfolio_df.columns]
+    return [
+        f'background-color: {status_color.get(row["Status"],"#FFFFFF")}' if col=="Status" else
+        f'background-color: {signal_color.get(row["Signal"],"#FFFFFF")}' if col=="Signal" else
+        f'background-color: {forecast_color.get(row["Trend"],"#FFFFFF")}' if col=="Trend" else ""
+        for col in portfolio_df.columns
+    ]
 
 st.dataframe(portfolio_df.style.apply(color_row, axis=1))
 
@@ -143,7 +158,6 @@ st.header("📊 Interaktive Aktien-Analyse")
 if not st.session_state.aktien_liste:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
 else:
-    # --- Stabile Portfolio-Auswahl ---
     ticker_options = [a["Ticker"] if a["Ticker"] else a["Name"] for a in st.session_state.aktien_liste]
     display_labels = [f"{a['Name']} ({a['Ticker']}) [{a['Status']}]" for a in st.session_state.aktien_liste]
 
@@ -159,7 +173,6 @@ else:
         tendenz = forecast_trend(df_selected)
         df_reset = df_selected.reset_index()
 
-        # --- Charts ---
         st.subheader(f"📈 Kurs + Signale für {selected_ticker}")
         chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T", y="Close:Q")
         if show_sma:
@@ -174,7 +187,6 @@ else:
             )
         st.altair_chart(chart.interactive(), use_container_width=True)
 
-        # --- Indikatoren ---
         st.subheader("📊 Indikatoren")
         indicator_chart = None
         if show_rsi:
@@ -187,7 +199,6 @@ else:
         if indicator_chart:
             st.altair_chart(indicator_chart, use_container_width=True)
 
-        # --- Ampel & Prognose ---
         st.subheader("🟢 Erweiterte Ampel")
         last_signal = df_selected["Advanced_Signal"].iloc[-1]
         st.markdown(f"<div style='background-color:{signal_color.get(last_signal,'#CCCCCC')};padding:20px;text-align:center;font-size:30px;border-radius:10px;color:white;'>{last_signal}</div>", unsafe_allow_html=True)
@@ -195,7 +206,6 @@ else:
         st.subheader("🔮 Prognose (nächste 3 Tage)")
         st.markdown(f"<div style='background-color:{forecast_color.get(tendenz,'#CCCCCC')};padding:20px;text-align:center;font-size:25px;border-radius:10px;color:white;'>{tendenz}</div>", unsafe_allow_html=True)
 
-        # --- Historie ---
         st.subheader("🟡 Historie der letzten 20 Signale")
         df_hist = df_reset[["Date","Advanced_Signal"]].tail(20).copy()
         df_hist["Signal_Code"] = df_hist["Advanced_Signal"].map({"Stark Kauf":2,"Halten":1,"Stark Verkauf":0})
