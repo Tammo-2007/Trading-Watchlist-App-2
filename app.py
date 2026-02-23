@@ -21,6 +21,12 @@ def ticker_valid(ticker):
     except:
         return False
 
+def normalize_ticker(ticker):
+    ticker = ticker.upper()
+    if "." not in ticker:
+        ticker += ".DE"
+    return ticker
+
 def get_company_name(ticker):
     try:
         info = yf.Ticker(ticker).info
@@ -31,9 +37,10 @@ def get_company_name(ticker):
 @st.cache_data
 def load_data(ticker):
     try:
-        for period in ["6mo", "1y", "max"]:
+        df = pd.DataFrame()
+        for period in ["6mo","1y","max"]:
             df = yf.download(ticker, period=period, interval="1d", progress=False)
-            if "Close" in df and not df["Close"].dropna().empty:
+            if not df.empty and "Close" in df:
                 close_series = pd.to_numeric(df["Close"], errors='coerce').fillna(method='ffill').fillna(0)
                 df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
                 df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
@@ -44,7 +51,7 @@ def load_data(ticker):
                 df["Volume"] = pd.to_numeric(df.get("Volume", 0), errors='coerce').fillna(0)
                 df["Volumen_Signal"] = df["Volume"].rolling(20).mean().fillna(0)
                 return df
-        return pd.DataFrame()
+        return df
     except:
         return pd.DataFrame()
 
@@ -61,7 +68,7 @@ def advanced_signal(row):
         score += 1 if sma20 > sma50 else (-1 if sma20 < sma50 else 0)
         score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
         score += 1 if macd > macd_signal else (-1 if macd < macd_signal else 0)
-        score += 0.5 if vol > 1.5 * vol_signal else 0
+        score += 0.5 if vol > 1.5*vol_signal else 0
         return "Stark Kauf" if score >= 2 else ("Stark Verkauf" if score <= -2 else "Halten")
     except:
         return "Halten"
@@ -82,31 +89,32 @@ def forecast_trend(df):
         score += 1 if sma20 > sma50 else -1
         score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
         score += 1 if macd > macd_signal else -1
-        score += 0.5 if vol > 1.5 * vol_signal else 0
-    avg_score = score / max(len(last_df), 1)
+        score += 0.5 if vol > 1.5*vol_signal else 0
+    avg_score = score / max(len(last_df),1)
     return "📈 Wahrscheinlich steigend" if avg_score >= 1 else ("📉 Wahrscheinlich fallend" if avg_score <= -1 else "➡️ Seitwärts")
 
 # --- Sidebar: Aktien verwalten ---
 st.sidebar.header("Aktien verwalten")
 new_ticker = st.sidebar.text_input("Ticker (z.B. RHM.DE)")
 new_name = st.sidebar.text_input("Name (optional)")
-new_status = st.sidebar.selectbox("Status", ["Beobachtung", "Besitzt"])
+new_status = st.sidebar.selectbox("Status", ["Beobachtung","Besitzt"])
 
 if st.sidebar.button("Aktie hinzufügen"):
     if not new_ticker and not new_name:
         st.sidebar.warning("Bitte mindestens Ticker oder Name eingeben")
     else:
-        name_to_use = new_name if new_name else get_company_name(new_ticker)
+        t = normalize_ticker(new_ticker) if new_ticker else ""
+        n = new_name if new_name else (get_company_name(t) if t else "Unbekannt")
         st.session_state.aktien_liste.append({
-            "Ticker": new_ticker.upper() if new_ticker else "",
-            "Name": name_to_use,
+            "Ticker": t,
+            "Name": n,
             "Status": new_status
         })
 
 # --- Portfolio-Übersicht interaktiv ---
 st.header("📋 Portfolio-Übersicht")
 to_delete = []
-for i, a in enumerate(st.session_state.aktien_liste):
+for i,a in enumerate(st.session_state.aktien_liste):
     cols = st.columns([0.05,0.4,0.2,0.15,0.2])
     selected = cols[0].checkbox("", key=f"chk_{i}")
     cols[1].write(f"{a['Name']} ({a['Ticker']})")
@@ -139,8 +147,8 @@ if st.session_state.aktien_liste:
     df_selected = load_data(selected_ticker) if ticker_valid(selected_ticker) else pd.DataFrame()
     if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
-        tendenz = forecast_trend(df_selected)
         df_reset = df_selected.reset_index()
+        tendenz = forecast_trend(df_selected)
 
         st.subheader(f"📈 Kurs + Signale für {selected_ticker}")
         chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T", y="Close:Q")
