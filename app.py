@@ -13,19 +13,32 @@ if "aktien_liste" not in st.session_state:
 
 # --- Sidebar: Aktien verwalten ---
 st.sidebar.header("Aktien verwalten")
-new_ticker = st.sidebar.text_input("Ticker (z.B. RHM.DE)")
+new_ticker = st.sidebar.text_input("Ticker (z.B. HEI.DE)")
 new_name = st.sidebar.text_input("Name (optional)")
 new_status = st.sidebar.selectbox("Status", ["Beobachtung", "Besitzt"])
+
+def ticker_valid(ticker):
+    if not ticker:
+        return False
+    try:
+        df = yf.download(ticker, period="5d", interval="1d", progress=False)
+        return not df.empty
+    except:
+        return False
 
 if st.sidebar.button("Aktie hinzufügen"):
     if not new_ticker and not new_name:
         st.sidebar.warning("Bitte mindestens Ticker oder Name eingeben")
     else:
+        valid = ticker_valid(new_ticker)
         st.session_state.aktien_liste.append({
             "Ticker": new_ticker.upper() if new_ticker else "",
             "Name": new_name if new_name else new_ticker.upper(),
-            "Status": new_status
+            "Status": new_status,
+            "ValidTicker": valid
         })
+        if new_ticker and not valid:
+            st.sidebar.warning("Warnung: Ticker ungültig oder keine Kursdaten verfügbar!")
 
 # --- Sidebar: Aktienliste mit Lösch-Button ---
 st.sidebar.subheader("Aktuelle Aktien:")
@@ -46,10 +59,9 @@ st.sidebar.header("Anzeigeoptionen")
 show_sma = st.sidebar.checkbox("SMA20/50 anzeigen", value=True)
 show_rsi = st.sidebar.checkbox("RSI anzeigen", value=True)
 show_macd = st.sidebar.checkbox("MACD anzeigen", value=True)
-show_ampel = st.sidebar.checkbox("Ampel anzeigen", value=True)
 show_markers = st.sidebar.checkbox("Signale im Chart anzeigen", value=True)
 
-# --- Funktion: Daten laden ---
+# --- Daten laden ---
 @st.cache_data
 def load_data(ticker):
     try:
@@ -66,15 +78,12 @@ def load_data(ticker):
         df["Volume"] = pd.to_numeric(df.get("Volume", 0), errors='coerce').fillna(0)
         df["Volumen_Signal"] = df["Volume"].rolling(20).mean().fillna(0)
         for col in ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            else:
-                df[col] = 0
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         return df
     except:
         return pd.DataFrame()
 
-# --- Erweiterte Ampel ---
+# --- Signale & Trend ---
 def advanced_signal(row):
     try:
         sma20 = float(row.get("SMA20", 0))
@@ -116,18 +125,15 @@ st.header("📋 Portfolio-Übersicht")
 portfolio_data = []
 
 for a in st.session_state.aktien_liste:
-    ticker, name, status = a["Ticker"], a["Name"], a["Status"]
+    ticker, name, status, valid = a["Ticker"], a["Name"], a["Status"], a.get("ValidTicker", False)
     trend = "Daten fehlen"
     last_signal = "–"
-    try:
-        if ticker:
-            df = load_data(ticker)
-            if not df.empty:
-                df["Advanced_Signal"] = df.apply(advanced_signal, axis=1)
-                trend = forecast_trend(df)
-                last_signal = df["Advanced_Signal"].iloc[-1]
-    except:
-        pass
+    if ticker and valid:
+        df = load_data(ticker)
+        if not df.empty:
+            df["Advanced_Signal"] = df.apply(advanced_signal, axis=1)
+            trend = forecast_trend(df)
+            last_signal = df["Advanced_Signal"].iloc[-1]
     portfolio_data.append({
         "Ticker": ticker if ticker else name,
         "Name": name,
@@ -137,21 +143,7 @@ for a in st.session_state.aktien_liste:
     })
 
 portfolio_df = pd.DataFrame(portfolio_data)
-
-# Farben nach Status und Signalen
-status_color = {"Besitzt": "#4CAF50", "Beobachtung": "#2196F3"}
-signal_color = {"Stark Kauf": "#4CAF50", "Halten": "#FFC107", "Stark Verkauf": "#F44336", "–":"#CCCCCC"}
-forecast_color = {"📈 Wahrscheinlich steigend": "#4CAF50", "➡️ Seitwärts": "#FFC107", "📉 Wahrscheinlich fallend": "#F44336", "Daten fehlen":"#CCCCCC"}
-
-def color_row(row):
-    return [
-        f'background-color: {status_color.get(row["Status"],"#FFFFFF")}' if col=="Status" else
-        f'background-color: {signal_color.get(row["Signal"],"#FFFFFF")}' if col=="Signal" else
-        f'background-color: {forecast_color.get(row["Trend"],"#FFFFFF")}' if col=="Trend" else ""
-        for col in portfolio_df.columns
-    ]
-
-st.dataframe(portfolio_df.style.apply(color_row, axis=1))
+st.dataframe(portfolio_df)
 
 # --- Interaktive Aktien-Analyse ---
 st.header("📊 Interaktive Aktien-Analyse")
@@ -167,7 +159,8 @@ else:
         format_func=lambda x: display_labels[ticker_options.index(x)]
     )
 
-    df_selected = load_data(selected_ticker) if selected_ticker else pd.DataFrame()
+    a_selected = next((a for a in st.session_state.aktien_liste if (a["Ticker"]==selected_ticker or a["Name"]==selected_ticker)), None)
+    df_selected = load_data(selected_ticker) if a_selected and a_selected.get("ValidTicker") else pd.DataFrame()
 
     if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
@@ -183,28 +176,9 @@ else:
             chart += alt.Chart(df_reset).mark_circle(size=100).encode(
                 x="Date:T",
                 y="Close:Q",
-                color=alt.Color("Advanced_Signal:N", scale=alt.Scale(domain=list(signal_color.keys()), range=list(signal_color.values()))),
-                tooltip=["Date:T", "Close:Q", "Advanced_Signal:N"]
+                color=alt.Color("Advanced_Signal:N"),
+                tooltip=["Date:T","Close:Q","Advanced_Signal:N"]
             )
         st.altair_chart(chart.interactive(), use_container_width=True)
-
-        st.subheader("📊 Indikatoren")
-        indicator_chart = None
-        if show_rsi:
-            chart_rsi = alt.Chart(df_reset).mark_line(color="green").encode(x="Date:T", y="RSI:Q")
-            indicator_chart = chart_rsi if indicator_chart is None else indicator_chart + chart_rsi
-        if show_macd:
-            chart_macd = alt.Chart(df_reset).mark_line(color="red").encode(x="Date:T", y="MACD:Q")
-            chart_signal = alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T", y="MACD_signal:Q")
-            indicator_chart = chart_macd + chart_signal if indicator_chart is None else indicator_chart + chart_macd + chart_signal
-        if indicator_chart:
-            st.altair_chart(indicator_chart, use_container_width=True)
-
-        st.subheader("🟢 Erweiterte Ampel")
-        last_signal = df_selected["Advanced_Signal"].iloc[-1]
-        st.markdown(f"<div style='background-color:{signal_color.get(last_signal,'#CCCCCC')};padding:20px;text-align:center;font-size:30px;border-radius:10px;color:white;'>{last_signal}</div>", unsafe_allow_html=True)
-
-        st.subheader("🔮 Prognose (nächste 3 Tage)")
-        st.markdown(f"<div style='background-color:{forecast_color.get(tendenz,'#CCCCCC')};padding:20px;text-align:center;font-size:25px;border-radius:10px;color:white;'>{tendenz}</div>", unsafe_allow_html=True)
     else:
-        st.info("Für diese Aktie sind noch keine Kursdaten verfügbar.")
+        st.info("Für diese Aktie sind noch keine Kursdaten verfügbar oder Ticker ungültig.")
