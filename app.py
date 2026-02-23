@@ -13,7 +13,7 @@ if "aktien_liste" not in st.session_state:
 
 # --- Hilfsfunktionen ---
 def normalize_ticker(ticker):
-    """Automatisch Ticker formatieren: Großbuchstaben + .DE falls kein Punkt"""
+    """Ticker formatieren: Großbuchstaben, nur DE-Ticker automatisch .DE"""
     ticker = ticker.strip().upper()
     if ticker and "." not in ticker:
         ticker += ".DE"
@@ -60,7 +60,6 @@ def load_data(ticker):
         return pd.DataFrame()
 
 def advanced_signal(row):
-    """Berechnet Signal für Chart"""
     try:
         sma20 = float(row.get("SMA20", 0))
         sma50 = float(row.get("SMA50", 0))
@@ -100,7 +99,7 @@ def forecast_trend(df):
 
 # --- Sidebar: Aktien verwalten ---
 st.sidebar.header("Aktien verwalten")
-new_ticker = st.sidebar.text_input("Ticker (z.B. RHM)")
+new_ticker = st.sidebar.text_input("Ticker (z.B. RHM oder CSG.AS)")
 new_name = st.sidebar.text_input("Name (optional)")
 new_status = st.sidebar.selectbox("Status", ["Beobachtung","Besitzt"])
 
@@ -133,7 +132,7 @@ for i,a in enumerate(st.session_state.aktien_liste):
 if to_delete:
     for i in reversed(to_delete):
         st.session_state.aktien_liste.pop(i)
-    st.experimental_rerun()  # nur einmal am Ende
+    st.experimental_rerun()
 
 # --- Interaktive Analyse ---
 if st.session_state.aktien_liste:
@@ -165,6 +164,6 @@ if st.session_state.aktien_liste:
         )
         st.altair_chart(chart.interactive(), use_container_width=True)
     else:
-        st.info("Für diese Aktie sind noch keine Kursdaten verfügbar oder Ticker ungültig.")
+        st.warning(f"Keine Kursdaten für {selected_ticker}. Ticker prüfen oder Daten evtl. nicht verfügbar.")
 else:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
