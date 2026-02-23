@@ -52,7 +52,7 @@ for i, a in enumerate(st.session_state.aktien_liste):
 if indices_to_delete:
     for i in sorted(indices_to_delete, reverse=True):
         st.session_state.aktien_liste.pop(i)
-    st.experimental_rerun()
+    st.sidebar.success("Aktie(n) gelöscht – die Liste wurde aktualisiert.")
 
 # Anzeigeoptionen Sidebar
 st.sidebar.header("Anzeigeoptionen")
