@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 import ta
 import altair as alt
+import time
 
 # Feedparser optional einbinden
 try:
@@ -25,6 +26,8 @@ sma50_period = st.sidebar.slider("SMA50 Periode", 10, 200, 50)
 vol_factor = st.sidebar.slider("Volumen Faktor für Signal", 0.5, 3.0, 1.5)
 trend_weight_rsi = st.sidebar.slider("RSI Gewicht im Trend", 0, 2, 1)
 trend_weight_macd = st.sidebar.slider("MACD Gewicht im Trend", 0, 2, 1)
+auto_refresh = st.sidebar.checkbox("Live-Kurs automatisch aktualisieren", value=True)
+refresh_interval = st.sidebar.number_input("Aktualisierung alle X Sekunden", min_value=10, max_value=600, value=60)
 
 # --- Hilfsfunktionen ---
 def normalize_ticker(ticker):
@@ -57,7 +60,6 @@ def load_data(ticker, interval="1d", period="6mo"):
     except:
         return pd.DataFrame()
 
-@st.cache_data
 def load_today_price(ticker):
     try:
         df = yf.Ticker(ticker).history(period="1d", interval="1m")
@@ -67,7 +69,7 @@ def load_today_price(ticker):
     except:
         return None
 
-# --- News Quellen ---
+# --- RSS-News ---
 RSS_FEEDS = {
     "Finanzfluss": "https://www.finanzfluss.de/feed/",
     "Finanztipps": "https://www.finanztipps.de/rss/news.xml",
@@ -100,7 +102,7 @@ def get_google_news(ticker):
     except:
         return []
 
-# --- Advanced Signal & Trend (unverändert) ---
+# --- Advanced Signal & Trend ---
 def advanced_signal(row):
     try:
         score = 0
@@ -149,7 +151,7 @@ def forecast_trend(df):
     else:
         return "➡️ Seitwärts"
 
-# --- Aktienverwaltung & Portfolio (unverändert) ---
+# --- Aktienverwaltung & Portfolio ---
 st.sidebar.header("Aktien verwalten")
 new_ticker = st.sidebar.text_input("Ticker (z.B. RHM oder CSG.AS)")
 new_name = st.sidebar.text_input("Name (optional)")
@@ -206,24 +208,31 @@ if st.session_state.aktien_liste:
         format_func=lambda x: display_labels[ticker_options.index(x)]
     )
 
-    df_selected = load_data(selected_ticker, interval=interval, period=period)
-    current_price = load_today_price(selected_ticker)
-    if current_price:
-        st.subheader(f"💰 Aktueller Kurs: {current_price:.2f} €")
+    # Live-Refresh Loop
+    while True:
+        df_selected = load_data(selected_ticker, interval=interval, period=period)
+        current_price = load_today_price(selected_ticker)
+        if current_price:
+            st.subheader(f"💰 Aktueller Kurs: {current_price:.2f} €")
 
-    if not df_selected.empty:
-        df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
-        df_reset = df_selected.reset_index()
-        tendenz = forecast_trend(df_selected)
+        if not df_selected.empty:
+            df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
+            df_reset = df_selected.reset_index()
+            tendenz = forecast_trend(df_selected)
 
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Historische Charts", "📉 Intraday-Kurs", "📰 News YFinance", "📰 News Extern", "📊 Advanced Signal & Trend"])
+            st.subheader("📈 Historische Charts")
+            chart = alt.Chart(df_reset).mark_line().encode(
+                x="Date",
+                y="Close"
+            )
+            st.altair_chart(chart, use_container_width=True)
 
-        # Tab 4: Externe News (fehlertolerant)
-        with tab4:
-            st.subheader("Externe News")
-            if not FEEDPARSER_AVAILABLE:
-                st.warning("RSS-News sind nicht verfügbar. Installiere `feedparser`, um externe News zu sehen.")
-            else:
+            st.subheader("📊 Advanced Signal & Trend")
+            st.write(df_reset[["Date","Advanced_Signal"]].tail(10))
+            st.write(f"Trend: {tendenz}")
+
+            if FEEDPARSER_AVAILABLE:
+                st.subheader("📰 Externe News")
                 all_external_news = {}
                 for name, url in RSS_FEEDS.items():
                     all_external_news[name] = get_rss_news(url, selected_ticker)
@@ -235,7 +244,15 @@ if st.session_state.aktien_liste:
                                 st.write(f"- [{a['title']}]({a['link']})")
                         else:
                             st.write("Keine News verfügbar")
-    else:
-        st.warning(f"Für diese Aktie sind keine historischen Kursdaten verfügbar. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
+            else:
+                st.warning("RSS-News nicht verfügbar. Installiere feedparser.")
+        else:
+            st.warning(f"Für diese Aktie sind keine historischen Kursdaten verfügbar. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
+
+        if auto_refresh:
+            time.sleep(refresh_interval)
+            st.experimental_rerun()
+        else:
+            break
 else:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
