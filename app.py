@@ -25,27 +25,29 @@ if st.session_state.portfolio.empty:
 # --- Tabs ---
 tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie hinzufügen", "📈 Kurs & Chart"])
 
-# --- Funktion: Aktuelle Preise ---
-def get_latest_prices(tickers):
-    try:
-        data = yf.download(tickers, period="5d", interval="1d", progress=False)["Close"]
-        if isinstance(data, pd.Series):
-            return pd.Series({tickers[0]: data[-1]})
-        else:
-            return data.iloc[-1]
-    except:
-        return pd.Series({t: 0.0 for t in tickers})
+# --- Funktion: Sichere Preisabfrage ---
+def get_latest_prices_safe(tickers):
+    latest = {}
+    for t in tickers:
+        try:
+            data = yf.download(t, period="5d", interval="1d", progress=False)["Close"]
+            if not data.empty:
+                latest[t] = data[-1]
+            else:
+                latest[t] = 0.0
+        except:
+            latest[t] = 0.0
+    return pd.Series(latest)
 
-# --- 1️⃣ Portfolio Tab (Card Layout) ---
+# --- 1️⃣ Portfolio Tab (Cards) ---
 with tab1:
     st.subheader("Dein Portfolio (Cards)")
 
     df = st.session_state.portfolio.copy()
-    df["Aktueller Preis"] = df["Ticker"].map(get_latest_prices(df["Ticker"].unique()))
+    df["Aktueller Preis"] = df["Ticker"].map(get_latest_prices_safe(df["Ticker"].unique()))
     df["Positionswert"] = df["Aktueller Preis"] * df["Stückzahl"] - df["Gebühr"]
     df["Gewinn/Verlust"] = df["Positionswert"] - (df["Kaufpreis"] * df["Stückzahl"] + df["Gebühr"])
 
-    # Farbliche Kennzeichnung Gewinn/Verlust
     def pnl_color(val):
         if val > 0:
             return "#4caf50"  # grün
@@ -59,12 +61,14 @@ with tab1:
         cols = st.columns(cols_per_row)
         for j, row in df.iloc[i:i+cols_per_row].iterrows():
             with cols[j % cols_per_row]:
+                # Markierung bei fehlenden Kursen
+                price_display = f"{row['Aktueller Preis']:.2f} €" if row['Aktueller Preis'] > 0 else "Kein Kurs"
                 st.markdown(
                     f"""
                     <div style="border-radius:10px; padding:15px; background-color:#f0f2f6; box-shadow: 2px 2px 6px rgba(0,0,0,0.1);">
                         <h3>{row['Ticker']}</h3>
                         <p>Status: <b>{row['Status']}</b></p>
-                        <p>Aktueller Preis: <b>{row['Aktueller Preis']:.2f} €</b></p>
+                        <p>Aktueller Preis: <b>{price_display}</b></p>
                         <p>Positionswert: <b>{row['Positionswert']:.2f} €</b></p>
                         <p style="color:{pnl_color(row['Gewinn/Verlust'])}">Gewinn/Verlust: <b>{row['Gewinn/Verlust']:.2f} €</b></p>
                         <p>Stop-Loss: {row['Stop-Loss']} € | Take-Profit: {row['Take-Profit']} €</p>
@@ -74,7 +78,7 @@ with tab1:
                 )
                 if st.button("Löschen", key=row["ID"]):
                     st.session_state.portfolio = df[df["ID"] != row["ID"]].reset_index(drop=True)
-                    st.experimental_rerun()  # Neu laden, damit Card verschwindet
+                    st.experimental_rerun()
 
 # --- 2️⃣ Aktie hinzufügen Tab ---
 with tab2:
@@ -113,19 +117,23 @@ with tab3:
     if selected_ticker:
         period_map = {"1d":"7d","1wk":"6mo","1mo":"2y","1y":"5y"}
         interval_map = {"1d":"15m","1wk":"1d","1mo":"1d","1y":"1wk"}
-        data_hist = yf.download(selected_ticker, period=period_map[timeframe], interval=interval_map[timeframe], progress=False)
-        if not data_hist.empty:
-            data_hist["SMA20"] = data_hist["Close"].rolling(20).mean()
-            data_hist["SMA50"] = data_hist["Close"].rolling(50).mean()
-            df_chart = data_hist.reset_index()
+        try:
+            data_hist = yf.download(selected_ticker, period=period_map[timeframe], interval=interval_map[timeframe], progress=False)
+            if not data_hist.empty:
+                data_hist["SMA20"] = data_hist["Close"].rolling(20).mean()
+                data_hist["SMA50"] = data_hist["Close"].rolling(50).mean()
+                df_chart = data_hist.reset_index()
 
-            base = alt.Chart(df_chart).encode(x="Date:T")
-            chart = alt.layer(
-                base.mark_line(color="blue").encode(y="Close:Q", tooltip=["Date:T","Close:Q"]),
-                base.mark_line(color="orange").encode(y="SMA20:Q", tooltip=["Date:T","SMA20:Q"]),
-                base.mark_line(color="green").encode(y="SMA50:Q", tooltip=["Date:T","SMA50:Q"])
-            ).resolve_scale(y="shared").properties(height=400)
-            st.altair_chart(chart, use_container_width=True)
-            st.markdown("**Legende:** Blau = Close, Orange = SMA20, Grün = SMA50")
-        else:
-            st.error("Chart konnte nicht geladen werden.")
+                import altair as alt
+                base = alt.Chart(df_chart).encode(x="Date:T")
+                chart = alt.layer(
+                    base.mark_line(color="blue").encode(y="Close:Q", tooltip=["Date:T","Close:Q"]),
+                    base.mark_line(color="orange").encode(y="SMA20:Q", tooltip=["Date:T","SMA20:Q"]),
+                    base.mark_line(color="green").encode(y="SMA50:Q", tooltip=["Date:T","SMA50:Q"])
+                ).resolve_scale(y="shared").properties(height=400)
+                st.altair_chart(chart, use_container_width=True)
+                st.markdown("**Legende:** Blau = Close, Orange = SMA20, Grün = SMA50")
+            else:
+                st.warning(f"Keine Chart-Daten für {selected_ticker} verfügbar.")
+        except Exception as e:
+            st.error(f"Fehler beim Laden des Charts für {selected_ticker}: {e}")
