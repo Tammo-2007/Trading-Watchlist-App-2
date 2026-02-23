@@ -51,7 +51,6 @@ with st.form("portfolio_form"):
 # --- Aktie hinzufügen ---
 if add_button and ticker_or_name:
     ticker_clean = ticker_or_name.upper().strip()
-    # Prüfen, ob bereits vorhanden
     found = any(a["ticker"].upper() == ticker_clean for a in st.session_state.aktien_liste)
     if not found:
         st.session_state.aktien_liste.append({
@@ -85,13 +84,12 @@ if st.session_state.aktien_liste:
         [a["ticker"] for a in st.session_state.aktien_liste]
     )
 
-    # --- Kursdaten laden mit automatischer Tickerprüfung ---
+    # --- Kursdaten laden mit Fallback ---
     @st.cache_data
     def load_data(ticker):
         ticker = ticker.upper().strip()
         df = yf.download(ticker, period="6mo", interval="1d")
-        # Falls leer → Prüfen, ob .DE anhängen hilft
-        if df.empty and "." not in ticker and len(ticker) <=5:
+        if df.empty and "." not in ticker and len(ticker)<=5:
             df = yf.download(ticker+".DE", period="6mo", interval="1d")
         if df.empty:
             return None
@@ -106,8 +104,11 @@ if st.session_state.aktien_liste:
     if df is None or df.empty or "Close" not in df.columns:
         st.warning(f"Für {selected_ticker} sind noch keine Kursdaten verfügbar oder Ticker ungültig.")
     else:
-        last_price = df["Close"].iloc[-1]
-        st.text(f"{selected_ticker} Preis: {last_price:.2f} €")
+        try:
+            last_price = df["Close"].iloc[-1]
+            st.text(f"{selected_ticker} Preis: {last_price:.2f} €")
+        except Exception as e:
+            st.warning(f"Kursdaten konnten nicht angezeigt werden: {e}")
 
         # --- Chart letzte 3 Monate ---
         end_date = df["Date"].max()
