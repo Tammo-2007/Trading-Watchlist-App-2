@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import altair as alt
-import datetime
-import json
 import os
+import json
+import datetime
 
-# --- RSS-News optional ---
+# --- Optional RSS ---
 try:
     import feedparser
     FEED_AVAILABLE = True
@@ -51,7 +51,6 @@ with st.form("portfolio_form"):
 # --- Aktie hinzufügen ---
 if add_button and ticker_or_name:
     ticker_clean = ticker_or_name.upper().strip()
-    
     # Prüfen, ob bereits vorhanden
     found = any(a["ticker"].upper() == ticker_clean for a in st.session_state.aktien_liste)
     if not found:
@@ -91,12 +90,9 @@ if st.session_state.aktien_liste:
     def load_data(ticker):
         ticker = ticker.upper().strip()
         df = yf.download(ticker, period="6mo", interval="1d")
-        
-        # Wenn keine Daten, prüfen, ob .DE anhängen hilft
-        if df.empty and "." not in ticker and len(ticker) <= 5:
-            ticker_de = ticker + ".DE"
-            df = yf.download(ticker_de, period="6mo", interval="1d")
-        
+        # Falls leer → Prüfen, ob .DE anhängen hilft
+        if df.empty and "." not in ticker and len(ticker) <=5:
+            df = yf.download(ticker+".DE", period="6mo", interval="1d")
         if df.empty:
             return None
         df.reset_index(inplace=True)
@@ -107,16 +103,16 @@ if st.session_state.aktien_liste:
     df = load_data(selected_ticker)
     st.subheader("💰 Aktueller Kurs & Trend")
 
-    if df is None or df.empty:
+    if df is None or df.empty or "Close" not in df.columns:
         st.warning(f"Für {selected_ticker} sind noch keine Kursdaten verfügbar oder Ticker ungültig.")
     else:
-        st.text(f"{selected_ticker} Preis: {df['Close'].iloc[-1]:.2f} €")
-        
-        # --- Chart für letzte 3 Monate ---
+        last_price = df["Close"].iloc[-1]
+        st.text(f"{selected_ticker} Preis: {last_price:.2f} €")
+
+        # --- Chart letzte 3 Monate ---
         end_date = df["Date"].max()
         start_date = end_date - pd.Timedelta(days=90)
         df_plot = df[(df["Date"] >= start_date) & (df["Date"] <= end_date)]
-        
         chart = alt.Chart(df_plot).transform_fold(
             ["Close","SMA20","SMA50"], as_=["Serie","Wert"]
         ).mark_line().encode(
@@ -127,7 +123,7 @@ if st.session_state.aktien_liste:
         ).properties(
             width=800,
             height=400
-        )  # KEIN .interactive() → kein Zoom/Scroll
+        )
         st.altair_chart(chart, use_container_width=False)
 
     # --- RSS-News ---
