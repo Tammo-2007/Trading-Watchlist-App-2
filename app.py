@@ -81,8 +81,11 @@ st.subheader("Dein Portfolio")
 if portfolio.empty:
     st.info("Keine Aktien vorhanden.")
 else:
-    portfolio["Aktueller Preis"] = portfolio["Ticker"].apply(lambda t: yf.Ticker(t).history(period="5d")["Close"][-1] if not yf.Ticker(t).history(period="5d").empty else None)
-    
+    # Aktuelle Preise
+    portfolio["Aktueller Preis"] = portfolio["Ticker"].apply(
+        lambda t: yf.Ticker(t).history(period="5d")["Close"][-1] if not yf.Ticker(t).history(period="5d").empty else None
+    )
+
     def compute_values(row):
         price = row["Aktueller Preis"]
         positionswert = row["Stückzahl"]*price if price else 0
@@ -90,7 +93,6 @@ else:
         return pd.Series([positionswert, gewinn])
     portfolio[["Positionswert","Gewinn/Verlust"]] = portfolio.apply(compute_values, axis=1)
 
-    # Grid: für jede Aktie eine Spalte mit Card + Chart
     for _, row in portfolio.iterrows():
         st.markdown("---")
         st.markdown(f"### {row['Ticker']} ({'🟢' if row['Gewinn/Verlust']>=0 else '🔴'})")
@@ -112,11 +114,15 @@ else:
                 hist = yf.download(row["Ticker"], period=period_map[tf], interval=interval_map[tf], progress=False)
                 if not hist.empty:
                     hist = hist.reset_index()
-                    chart = alt.Chart(hist).mark_line(color="blue").encode(
-                        x="Date:T",
-                        y="Close:Q",
-                        tooltip=["Date:T","Close:Q"]
-                    ).properties(height=250)
+                    hist["SMA20"] = hist["Close"].rolling(20).mean()
+                    hist["SMA50"] = hist["Close"].rolling(50).mean()
+
+                    base = alt.Chart(hist).encode(x="Date:T")
+                    chart = alt.layer(
+                        base.mark_line(color="blue").encode(y="Close:Q", tooltip=["Date:T","Close:Q"]),
+                        base.mark_line(color="orange").encode(y="SMA20:Q", tooltip=["Date:T","SMA20:Q"]),
+                        base.mark_line(color="green").encode(y="SMA50:Q", tooltip=["Date:T","SMA50:Q"])
+                    ).resolve_scale(y="shared").properties(height=250)
                     st.altair_chart(chart, use_container_width=True)
                 else:
                     st.write("Chart nicht verfügbar")
