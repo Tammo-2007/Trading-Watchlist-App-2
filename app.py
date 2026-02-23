@@ -13,24 +13,21 @@ if "aktien_liste" not in st.session_state:
 
 # --- Hilfsfunktionen ---
 def normalize_ticker(ticker):
-    """Ticker formatieren: Großbuchstaben, nur DE-Ticker automatisch .DE"""
     ticker = ticker.strip().upper()
     if ticker and "." not in ticker:
         ticker += ".DE"
     return ticker
 
 def ticker_valid(ticker):
-    """Prüft, ob YFinance Daten liefert"""
     if not ticker:
         return False
     try:
-        df = yf.download(ticker, period="5d", interval="1d", progress=False)
+        df = load_data(ticker)
         return not df.empty
     except:
         return False
 
 def get_company_name(ticker):
-    """Versucht Namen von YFinance zu holen"""
     try:
         info = yf.Ticker(ticker).info
         return info.get("shortName", ticker)
@@ -39,25 +36,27 @@ def get_company_name(ticker):
 
 @st.cache_data
 def load_data(ticker):
-    """Kursdaten + technische Indikatoren laden"""
     df = pd.DataFrame()
-    try:
-        for period in ["6mo","1y","max"]:
-            df = yf.download(ticker, period=period, interval="1d", progress=False)
-            if not df.empty and "Close" in df:
-                close_series = pd.to_numeric(df["Close"], errors='coerce').fillna(method='ffill').fillna(0)
-                df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
-                df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
-                df["RSI"] = ta.momentum.RSIIndicator(close_series, 14).rsi()
-                macd = ta.trend.MACD(close_series)
-                df["MACD"] = macd.macd()
-                df["MACD_signal"] = macd.macd_signal()
-                df["Volume"] = pd.to_numeric(df.get("Volume", 0), errors='coerce').fillna(0)
-                df["Volumen_Signal"] = df["Volume"].rolling(20).mean().fillna(0)
-                return df
-        return df
-    except:
-        return pd.DataFrame()
+    intervals = ["1d","1wk","1mo"]
+    periods = ["6mo","1y","max"]
+    for interval in intervals:
+        for period in periods:
+            try:
+                df = yf.download(ticker, period=period, interval=interval, progress=False)
+                if not df.empty and "Close" in df:
+                    close_series = pd.to_numeric(df["Close"], errors='coerce').fillna(method='ffill').fillna(0)
+                    df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
+                    df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
+                    df["RSI"] = ta.momentum.RSIIndicator(close_series, 14).rsi()
+                    macd = ta.trend.MACD(close_series)
+                    df["MACD"] = macd.macd()
+                    df["MACD_signal"] = macd.macd_signal()
+                    df["Volume"] = pd.to_numeric(df.get("Volume", 0), errors='coerce').fillna(0)
+                    df["Volumen_Signal"] = df["Volume"].rolling(20).mean().fillna(0)
+                    return df
+            except:
+                continue
+    return pd.DataFrame()
 
 def advanced_signal(row):
     try:
@@ -109,7 +108,6 @@ if st.sidebar.button("Aktie hinzufügen"):
     else:
         t = normalize_ticker(new_ticker) if new_ticker else ""
         n = new_name if new_name else (get_company_name(t) if t else "Unbekannt")
-        # Doppelungen vermeiden
         exists = any(a["Ticker"]==t for a in st.session_state.aktien_liste)
         if not exists:
             st.session_state.aktien_liste.append({
@@ -120,10 +118,9 @@ if st.sidebar.button("Aktie hinzufügen"):
         else:
             st.sidebar.info("Ticker bereits in der Liste")
 
-# --- Portfolio-Übersicht interaktiv ---
+# --- Portfolio-Übersicht ---
 st.header("📋 Portfolio-Übersicht")
 to_delete = []
-
 for i, a in enumerate(st.session_state.aktien_liste):
     cols = st.columns([0.05,0.4,0.2,0.15,0.2])
     selected = cols[0].checkbox("", key=f"chk_{i}")
@@ -131,7 +128,6 @@ for i, a in enumerate(st.session_state.aktien_liste):
     cols[1].write(f"{a['Name']} ({a['Ticker']})")
     cols[2].write(f"{status_color} {a['Status']}")
     delete = cols[4].button("Löschen", key=f"del_{i}")
-    
     if delete:
         to_delete.append(i)
 
@@ -152,8 +148,8 @@ if st.session_state.aktien_liste:
         format_func=lambda x: display_labels[ticker_options.index(x)]
     )
 
-    if ticker_valid(selected_ticker):
-        df_selected = load_data(selected_ticker)
+    df_selected = load_data(selected_ticker)
+    if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
         df_reset = df_selected.reset_index()
         tendenz = forecast_trend(df_selected)
@@ -171,6 +167,6 @@ if st.session_state.aktien_liste:
         st.altair_chart(chart.interactive(), use_container_width=True)
         st.write("Trend:", tendenz)
     else:
-        st.warning(f"Für diese Aktie sind noch keine Kursdaten verfügbar oder Ticker ungültig.")
+        st.warning(f"Für diese Aktie sind noch keine Kursdaten verfügbar oder Ticker ungültig. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
 else:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
