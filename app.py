@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import uuid
+import altair as alt
 
 # --- Seite konfigurieren ---
 st.set_page_config(page_title="Trading Dashboard Pro", layout="wide")
@@ -13,7 +14,7 @@ if "mandanten" not in st.session_state:
 if "active_mandant" not in st.session_state:
     st.session_state.active_mandant = None
 
-# Sidebar: Mandanten
+# Sidebar: Mandanten + Aktie/ETF hinzufügen
 st.sidebar.subheader("👤 Mandantenverwaltung")
 new_mandant = st.sidebar.text_input("Neuen Mandanten anlegen")
 if st.sidebar.button("Mandant hinzufügen") and new_mandant:
@@ -26,7 +27,6 @@ if st.sidebar.button("Mandant hinzufügen") and new_mandant:
     else:
         st.warning("Mandant existiert bereits!")
 
-# Mandant wählen
 if st.session_state.mandanten:
     mandant_list = list(st.session_state.mandanten.keys())
     st.session_state.active_mandant = st.sidebar.selectbox(
@@ -35,7 +35,7 @@ if st.session_state.mandanten:
 else:
     st.warning("Bitte erst einen Mandanten anlegen.")
 
-# Aktie/ETF hinzufügen in Sidebar
+# Aktie/ETF hinzufügen
 st.sidebar.subheader("➕ Aktie/ETF hinzufügen")
 ticker_input = st.sidebar.text_input("Ticker (z.B. RHM.DE)").upper()
 price_input = st.sidebar.number_input("Kaufpreis (€)", min_value=0.01, step=0.01, format="%.2f")
@@ -76,85 +76,49 @@ def set_portfolio(df):
 
 portfolio = get_portfolio()
 
-# --- Tabs ---
-tab1, tab2 = st.tabs(["📋 Portfolio", "📈 Charts & Sparplan"])
+# --- Portfolio anzeigen mit Chart neben jeder Aktie ---
+st.subheader("Dein Portfolio")
+if portfolio.empty:
+    st.info("Keine Aktien vorhanden.")
+else:
+    portfolio["Aktueller Preis"] = portfolio["Ticker"].apply(lambda t: yf.Ticker(t).history(period="5d")["Close"][-1] if not yf.Ticker(t).history(period="5d").empty else None)
+    
+    def compute_values(row):
+        price = row["Aktueller Preis"]
+        positionswert = row["Stückzahl"]*price if price else 0
+        gewinn = positionswert - (row["Kaufpreis"]*row["Stückzahl"] + row["Gebühr"])
+        return pd.Series([positionswert, gewinn])
+    portfolio[["Positionswert","Gewinn/Verlust"]] = portfolio.apply(compute_values, axis=1)
 
-# --- Portfolio Tab ---
-with tab1:
-    st.subheader("Dein Portfolio (Cards)")
-    if portfolio.empty:
-        st.info("Keine Aktien vorhanden.")
-    else:
-        # Kurse abrufen
-        def get_latest_price(ticker):
+    # Grid: für jede Aktie eine Spalte mit Card + Chart
+    for _, row in portfolio.iterrows():
+        st.markdown("---")
+        st.markdown(f"### {row['Ticker']} ({'🟢' if row['Gewinn/Verlust']>=0 else '🔴'})")
+        col1, col2 = st.columns([1,2])
+        with col1:
+            st.write(f"Status: {row['Status']}")
+            st.write(f"Aktueller Preis: {row['Aktueller Preis'] if row['Aktueller Preis'] else '-'} €")
+            st.write(f"Positionswert: {row['Positionswert']:.2f} €")
+            st.write(f"Gewinn/Verlust: {row['Gewinn/Verlust']:.2f} €")
+            st.write(f"📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €")
+            st.write(f"⚠️ Stop-Loss Empfehlung: {row['Kaufpreis']*0.95:.2f} €")
+            st.write(f"Gebühr: {row['Gebühr']} € (pro Order)")
+        with col2:
+            # Zeitraum umschalten
+            tf = st.selectbox(f"Zeitraum {row['Ticker']}", ["1T","1W","1M","1J","MAX"], key=row["ID"])
+            period_map = {"1T":"7d","1W":"6mo","1M":"2y","1J":"5y","MAX":"max"}
+            interval_map = {"1T":"15m","1W":"1d","1M":"1d","1J":"1wk","MAX":"1mo"}
             try:
-                data = yf.Ticker(ticker).history(period="5d")
-                if not data.empty:
-                    return data["Close"][-1]
+                hist = yf.download(row["Ticker"], period=period_map[tf], interval=interval_map[tf], progress=False)
+                if not hist.empty:
+                    hist = hist.reset_index()
+                    chart = alt.Chart(hist).mark_line(color="blue").encode(
+                        x="Date:T",
+                        y="Close:Q",
+                        tooltip=["Date:T","Close:Q"]
+                    ).properties(height=250)
+                    st.altair_chart(chart, use_container_width=True)
+                else:
+                    st.write("Chart nicht verfügbar")
             except:
-                pass
-            return None
-
-        portfolio["Aktueller Preis"] = portfolio["Ticker"].apply(get_latest_price)
-
-        # Positionswert & Gewinn/Verlust
-        def compute_values(row):
-            price = row["Aktueller Preis"]
-            positionswert = row["Stückzahl"]*price if price else 0
-            gewinn = positionswert - (row["Kaufpreis"]*row["Stückzahl"] + row["Gebühr"])
-            return pd.Series([positionswert, gewinn])
-        portfolio[["Positionswert","Gewinn/Verlust"]] = portfolio.apply(compute_values, axis=1)
-
-        # Stop-Loss Empfehlung (basierend auf Volatilität)
-        def stop_loss_volatility(row):
-            try:
-                data = yf.Ticker(row["Ticker"]).history(period="1mo")
-                if not data.empty:
-                    vol = data["Close"].pct_change().std()
-                    return max(row["Kaufpreis"]*(1-vol), 0)
-            except:
-                return row["Kaufpreis"]*0.95
-            return row["Kaufpreis"]*0.95
-        portfolio["Stop-Loss-Empfehlung"] = portfolio.apply(stop_loss_volatility, axis=1)
-
-        # Anzeige als Cards
-        for _, row in portfolio.iterrows():
-            color = "🟢" if row["Gewinn/Verlust"] >= 0 else "🔴"
-            st.markdown(f"""
-            <div style="border:1px solid #ccc; padding:15px; border-radius:10px; margin-bottom:10px; background-color:#f0f0f0; color:#000;">
-            <b>{row['Ticker']} {color}</b><br>
-            Status: {row['Status']}<br>
-            Aktueller Preis: {row['Aktueller Preis'] if row['Aktueller Preis'] else '-'} €<br>
-            Positionswert: {row['Positionswert']:.2f} €<br>
-            Gewinn/Verlust: <span style="color:{'green' if row['Gewinn/Verlust']>=0 else 'red'}">{row['Gewinn/Verlust']:.2f} €</span><br>
-            📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €<br>
-            ⚠️ Stop-Loss Empfehlung: {row['Stop-Loss-Empfehlung']:.2f} €<br>
-            Gebühr: {row['Gebühr']} € (pro Order)
-            </div>
-            """, unsafe_allow_html=True)
-
-        # Aktien löschen
-        delete_options = portfolio[["ID","Ticker"]].apply(lambda x: f"{x['Ticker']} ({x['ID'][:6]})", axis=1).tolist()
-        delete_choice = st.selectbox("Wähle Aktie zum Löschen", [""] + delete_options)
-        if st.button("Löschen"):
-            if delete_choice:
-                selected_id = delete_choice.split("(")[-1].replace(")","")
-                portfolio = portfolio[portfolio["ID"].str[:6] != selected_id]
-                set_portfolio(portfolio)
-                st.experimental_rerun()
-
-# --- Charts & Sparplan Tab ---
-with tab2:
-    st.subheader("Charts & Sparplan")
-    selected_ticker = st.selectbox("Ticker wählen", [""] + portfolio["Ticker"].unique().tolist())
-    timeframe = st.selectbox("Zeitraum", ["1d","1wk","1mo","1y"])
-    if selected_ticker:
-        period_map = {"1d":"7d","1wk":"6mo","1mo":"2y","1y":"5y"}
-        interval_map = {"1d":"15m","1wk":"1d","1mo":"1d","1y":"1wk"}
-        data_hist = yf.download(selected_ticker, period=period_map[timeframe], interval=interval_map[timeframe], progress=False)
-        if not data_hist.empty:
-            data_hist["SMA20"] = data_hist["Close"].rolling(20).mean()
-            data_hist["SMA50"] = data_hist["Close"].rolling(50).mean()
-            st.line_chart(data_hist[["Close","SMA20","SMA50"]])
-        else:
-            st.error("Chart konnte nicht geladen werden.")
+                st.write("Chart konnte nicht geladen werden")
