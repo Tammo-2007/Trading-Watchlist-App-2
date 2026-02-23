@@ -18,15 +18,6 @@ def normalize_ticker(ticker):
         ticker += ".DE"
     return ticker
 
-def ticker_valid(ticker):
-    if not ticker:
-        return False
-    try:
-        df = load_data(ticker)
-        return not df.empty
-    except:
-        return False
-
 def get_company_name(ticker):
     try:
         info = yf.Ticker(ticker).info
