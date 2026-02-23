@@ -4,6 +4,7 @@ import yfinance as yf
 import ta
 import altair as alt
 
+# Optional: News über RSS
 try:
     import feedparser
     FEEDPARSER_AVAILABLE = True
@@ -43,7 +44,6 @@ if col_b.button("Hinzufügen"):
     n = new_name.strip() if new_name else t
     if t and not any(a["Ticker"]==t for a in st.session_state.aktien_liste):
         st.session_state.aktien_liste.append({"Ticker": t, "Name": n, "Status": new_status})
-    st.experimental_rerun()  # nur hier nach Button-Event
 
 # --- Portfolio Übersicht ---
 st.subheader("📋 Portfolio")
@@ -55,10 +55,10 @@ for i,a in enumerate(st.session_state.aktien_liste):
     cols[2].write(f"{'🟢' if a['Status']=='Besitzt' else '🟡'} {a['Status']}")
     if cols[3].button("Löschen", key=f"del_{i}"):
         to_delete.append(i)
+
 if to_delete:
     for i in reversed(to_delete):
         st.session_state.aktien_liste.pop(i)
-    st.experimental_rerun()  # nur hier nach Button-Event
 
 # --- Aktie auswählen ---
 if st.session_state.aktien_liste:
