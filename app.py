@@ -50,8 +50,9 @@ with st.form("portfolio_form"):
 
 # --- Aktie hinzufügen ---
 if add_button and ticker_or_name:
-    ticker_clean = ticker_or_name.upper()
-    # Automatisches .DE für deutsche Ticker
+    ticker_clean = ticker_or_name.upper().strip()
+    
+    # Automatische Anpassung: deutscher Ticker bekommt .DE
     if "." not in ticker_clean and len(ticker_clean) <= 5:
         ticker_clean += ".DE"
 
