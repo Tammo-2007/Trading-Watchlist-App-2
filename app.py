@@ -143,11 +143,12 @@ st.header("📊 Interaktive Aktien-Analyse")
 if portfolio_df.empty:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
 else:
-    ticker_options = [a["Ticker"] for a in st.session_state.aktien_liste]
-    display_names = [f"{a['Name']} ({a['Ticker']})" for a in st.session_state.aktien_liste]
-    selected_index = st.selectbox("Wähle eine Aktie aus deinem Portfolio", range(len(ticker_options)), format_func=lambda i: display_names[i])
-    selected_portfolio_ticker = ticker_options[selected_index]
-    
+    # --- Auswahl über Display-String (stabil nach Löschen/Hinzufügen) ---
+    portfolio_display = [f"{a['Name']} ({a['Ticker']}) [{a['Status']}]" for a in st.session_state.aktien_liste]
+    selected_portfolio = st.selectbox("Wähle eine Aktie aus deinem Portfolio", portfolio_display)
+    selected_index = portfolio_display.index(selected_portfolio)
+    selected_portfolio_ticker = st.session_state.aktien_liste[selected_index]["Ticker"]
+
     df_selected = load_data(selected_portfolio_ticker)
     if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
