@@ -112,7 +112,7 @@ with right_col:
                 ticker_color = "#000080"
                 value_color = gain_color if row["Gewinn/Verlust"] >= 0 else loss_color
                 st.markdown(f"""
-                <div style="border:2px solid #555; padding:10px; border-radius:10px; margin-bottom:10px; background-color:#f8f8f8;">
+                <div style="border:2px solid #555; padding:10px; border-radius:10px; margin-bottom:10px; background-color:#f0f0f0;">
                     <b style='color:{ticker_color}; font-size:18px'>{row['Ticker']}</b><br>
                     Status: <span style='color:black'>{row['Status']}</span><br>
                     Aktueller Preis: <span style='color:black'>{row['Aktueller Preis'] if row['Aktueller Preis'] else 'Kein Kurs'} €</span><br>
