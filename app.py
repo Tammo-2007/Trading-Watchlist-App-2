@@ -11,7 +11,7 @@ st.title("📊 Profi Trading Dashboard mit Portfolio-Status")
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = []
 
-# --- Sidebar: Aktien eintragen / bearbeiten ---
+# --- Sidebar: Aktien verwalten ---
 st.sidebar.header("Aktien verwalten")
 new_ticker = st.sidebar.text_input("Ticker (z.B. RHM.DE)")
 new_name = st.sidebar.text_input("Name (optional)")
@@ -167,7 +167,8 @@ else:
         format_func=lambda x: display_labels[ticker_options.index(x)]
     )
 
-    df_selected = load_data(selected_ticker)
+    df_selected = load_data(selected_ticker) if selected_ticker else pd.DataFrame()
+
     if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
         tendenz = forecast_trend(df_selected)
@@ -205,8 +206,5 @@ else:
 
         st.subheader("🔮 Prognose (nächste 3 Tage)")
         st.markdown(f"<div style='background-color:{forecast_color.get(tendenz,'#CCCCCC')};padding:20px;text-align:center;font-size:25px;border-radius:10px;color:white;'>{tendenz}</div>", unsafe_allow_html=True)
-
-        st.subheader("🟡 Historie der letzten 20 Signale")
-        df_hist = df_reset[["Date","Advanced_Signal"]].tail(20).copy()
-        df_hist["Signal_Code"] = df_hist["Advanced_Signal"].map({"Stark Kauf":2,"Halten":1,"Stark Verkauf":0})
-        st.dataframe(df_hist.set_index("Date")[["Signal_Code"]].style.background_gradient(cmap="RdYlGn", axis=None))
+    else:
+        st.info("Für diese Aktie sind noch keine Kursdaten verfügbar.")
