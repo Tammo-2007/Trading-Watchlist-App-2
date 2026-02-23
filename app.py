@@ -23,7 +23,7 @@ if st.session_state.portfolio.empty:
     ]
     st.session_state.portfolio = pd.DataFrame(demo_data)
 
-# --- Preis pro Ticker ---
+# --- Funktionen ---
 def get_latest_price(ticker):
     try:
         data = yf.download(ticker, period="5d", interval="1d", progress=False)
@@ -33,7 +33,6 @@ def get_latest_price(ticker):
     except:
         return 0.0
 
-# --- Mini-Chart Altair ---
 def create_mini_chart(ticker):
     try:
         data = yf.download(ticker, period="1mo", interval="1d", progress=False)
@@ -51,28 +50,30 @@ def create_mini_chart(ticker):
 # --- Tabs ---
 tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie hinzufügen", "📈 Kurs & Chart"])
 
+# ----------------- Portfolio Tab -----------------
 with tab1:
     st.subheader("Dein Portfolio (Cards)")
     df = st.session_state.portfolio.copy()
     if not df.empty:
         df["Aktueller Preis"] = df["Ticker"].apply(get_latest_price)
 
+        # Grid-Layout
+        cols = st.columns(3)  # 3 Cards pro Reihe
         for idx, row in df.iterrows():
+            col = cols[idx % 3]  # Wechselt die Spalte
             price = float(row['Aktueller Preis']) if pd.notnull(row['Aktueller Preis']) else 0.0
             positionswert = row['Stückzahl']*price - row['Gebühr'] if price > 0 else 0
             gewinn_verlust = positionswert - (row['Kaufpreis']*row['Stückzahl'] + row['Gebühr']) if price > 0 else 0
             price_display = f"{price:.2f} €" if price > 0 else "Kein Kurs"
-
             status_icon = "🟢" if row['Status']=="Besitzt" else "🟡"
             pnl_color = "#0a7f0a" if gewinn_verlust > 0 else "#c40000" if gewinn_verlust < 0 else "#1a73e8"
 
-            # Card Layout
-            with st.container():
+            with col:
                 st.markdown(
                     f"""
                     <div style="border-radius:12px; padding:12px; margin-bottom:12px;
-                                background-color:#ffffff; box-shadow: 1px 1px 6px rgba(0,0,0,0.15);
-                                color:#222; font-size:13px; width:260px; min-height:200px; overflow:hidden;">
+                                background-color:#f9f9f9; box-shadow: 1px 1px 6px rgba(0,0,0,0.15);
+                                color:#222; font-size:13px; min-height:220px;">
                         <h4>{row['Ticker']} {status_icon}</h4>
                         <p>Status: <b>{row['Status']}</b></p>
                         <p>Aktueller Preis: <b>{price_display}</b></p>
@@ -80,23 +81,17 @@ with tab1:
                         <p style="color:{pnl_color}; font-weight:bold;">Gewinn/Verlust: <b>{gewinn_verlust:.2f} €</b></p>
                         <p>📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €</p>
                     </div>
-                    """,
-                    unsafe_allow_html=True
+                    """, unsafe_allow_html=True
                 )
 
-                # Mini-Chart
                 mini_chart = create_mini_chart(row['Ticker'])
                 if mini_chart:
                     st.altair_chart(mini_chart, use_container_width=False)
 
-                # Chart-Button
-                if st.button(f"Chart anzeigen: {row['Ticker']}", key=f"chart_{row['ID']}"):
-                    st.session_state.selected_ticker = row["Ticker"]
-
-                # Löschen-Button
                 if st.button(f"Löschen: {row['Ticker']}", key=f"delete_{row['ID']}"):
                     st.session_state.portfolio = df[df["ID"] != row["ID"]].reset_index(drop=True)
 
+# ----------------- Aktie hinzufügen Tab -----------------
 with tab2:
     st.subheader("Neue Aktie hinzufügen")
     cols = st.columns([2,1,1,1,1,1])
@@ -122,14 +117,20 @@ with tab2:
             }])
             st.session_state.portfolio = pd.concat([st.session_state.portfolio, new_row], ignore_index=True)
 
+# ----------------- Kurs & Chart Tab -----------------
 with tab3:
     st.subheader("Kursverlauf & SMA")
     selected_ticker = getattr(st.session_state, "selected_ticker", None)
+    tickers_list = list(st.session_state.portfolio["Ticker"].unique())
+    if selected_ticker not in tickers_list:
+        selected_ticker = None
+
     selected_ticker = st.selectbox(
         "Aktie wählen",
-        [""] + list(st.session_state.portfolio["Ticker"].unique()),
-        index=0 if not selected_ticker else list(st.session_state.portfolio["Ticker"].unique()).index(selected_ticker)+1
+        [""] + tickers_list,
+        index=0 if not selected_ticker else tickers_list.index(selected_ticker)+1
     )
+
     if selected_ticker:
         data_hist = yf.download(selected_ticker, period="1y", interval="1d", progress=False)
         if not data_hist.empty:
