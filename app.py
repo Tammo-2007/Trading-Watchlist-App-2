@@ -1,10 +1,8 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import altair as alt
 import uuid
 
-# --- Page Config ---
 st.set_page_config(page_title="Trading Dashboard Pro", layout="wide")
 st.markdown("<h1 style='text-align: center;'>📊 Trading Dashboard Pro</h1>", unsafe_allow_html=True)
 
@@ -14,7 +12,7 @@ if "portfolio" not in st.session_state:
         columns=["ID","Ticker","Kaufpreis","Stückzahl","Stop-Loss","Take-Profit","Status","Gebühr"]
     )
 
-# --- Demo-Aktien einfügen, falls leer ---
+# --- Demo-Aktien ---
 if st.session_state.portfolio.empty:
     demo_data = [
         {"ID": str(uuid.uuid4()), "Ticker": "RHM.DE", "Kaufpreis": 50, "Stückzahl": 10,
@@ -27,62 +25,56 @@ if st.session_state.portfolio.empty:
 # --- Tabs ---
 tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie hinzufügen", "📈 Kurs & Chart"])
 
-# --- 1️⃣ Portfolio Tab ---
+# --- Funktion: Aktuelle Preise ---
+def get_latest_prices(tickers):
+    try:
+        data = yf.download(tickers, period="5d", interval="1d", progress=False)["Close"]
+        if isinstance(data, pd.Series):
+            return pd.Series({tickers[0]: data[-1]})
+        else:
+            return data.iloc[-1]
+    except:
+        return pd.Series({t: 0.0 for t in tickers})
+
+# --- 1️⃣ Portfolio Tab (Card Layout) ---
 with tab1:
-    st.subheader("Dein Portfolio")
+    st.subheader("Dein Portfolio (Cards)")
+
     df = st.session_state.portfolio.copy()
-
-    # --- Aktuelle Preise abrufen ---
-    tickers = df["Ticker"].unique().tolist()
-    if tickers:
-        try:
-            data = yf.download(tickers, period="5d", interval="1d", progress=False)["Close"]
-            if isinstance(data, pd.Series):
-                latest_prices = pd.Series({tickers[0]: data[-1]})
-            else:
-                latest_prices = data.iloc[-1]
-            df["Aktueller Preis"] = df["Ticker"].map(latest_prices)
-        except:
-            df["Aktueller Preis"] = 0.0
-    else:
-        df["Aktueller Preis"] = 0.0
-
-    # --- Positionswert & Gewinn/Verlust ---
+    df["Aktueller Preis"] = df["Ticker"].map(get_latest_prices(df["Ticker"].unique()))
     df["Positionswert"] = df["Aktueller Preis"] * df["Stückzahl"] - df["Gebühr"]
     df["Gewinn/Verlust"] = df["Positionswert"] - (df["Kaufpreis"] * df["Stückzahl"] + df["Gebühr"])
 
-    # --- Smarte Signale ---
-    def compute_signal(row):
-        if row["Aktueller Preis"] <= row["Stop-Loss"]:
-            return "SELL"
-        elif row["Aktueller Preis"] >= row["Take-Profit"]:
-            return "Take-Profit"
-        elif row["Gewinn/Verlust"] >= 0:
-            return "Halten"
+    # Farbliche Kennzeichnung Gewinn/Verlust
+    def pnl_color(val):
+        if val > 0:
+            return "#4caf50"  # grün
+        elif val < 0:
+            return "#ff4d4d"  # rot
         else:
-            return "SELL"
-    df["Signal"] = df.apply(compute_signal, axis=1)
+            return "#2196f3"  # blau
 
-    # --- Farbige Signale ---
-    def color_signal(val):
-        if val == "SELL":
-            return "background-color: #ff4d4d; color:white"
-        elif val == "Take-Profit":
-            return "background-color: #4caf50; color:white"
-        else:
-            return "background-color: #2196f3; color:white"
-
-    st.dataframe(df.style.applymap(color_signal, subset=["Signal"]), height=300)
-
-    # --- Aktien löschen ---
-    st.markdown("### Aktien löschen")
-    delete_options = df[["ID","Ticker"]].apply(lambda x: f"{x['Ticker']} ({x['ID'][:6]})", axis=1).tolist()
-    delete_choice = st.selectbox("Wähle Aktie zum Löschen", [""] + delete_options)
-    if st.button("Löschen"):
-        if delete_choice:
-            selected_id = delete_choice.split("(")[-1].replace(")","")
-            st.session_state.portfolio = df[df["ID"] != selected_id].reset_index(drop=True)
-            st.success("Aktie gelöscht!")
+    cols_per_row = 3
+    for i in range(0, len(df), cols_per_row):
+        cols = st.columns(cols_per_row)
+        for j, row in df.iloc[i:i+cols_per_row].iterrows():
+            with cols[j % cols_per_row]:
+                st.markdown(
+                    f"""
+                    <div style="border-radius:10px; padding:15px; background-color:#f0f2f6; box-shadow: 2px 2px 6px rgba(0,0,0,0.1);">
+                        <h3>{row['Ticker']}</h3>
+                        <p>Status: <b>{row['Status']}</b></p>
+                        <p>Aktueller Preis: <b>{row['Aktueller Preis']:.2f} €</b></p>
+                        <p>Positionswert: <b>{row['Positionswert']:.2f} €</b></p>
+                        <p style="color:{pnl_color(row['Gewinn/Verlust'])}">Gewinn/Verlust: <b>{row['Gewinn/Verlust']:.2f} €</b></p>
+                        <p>Stop-Loss: {row['Stop-Loss']} € | Take-Profit: {row['Take-Profit']} €</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                if st.button("Löschen", key=row["ID"]):
+                    st.session_state.portfolio = df[df["ID"] != row["ID"]].reset_index(drop=True)
+                    st.experimental_rerun()  # Neu laden, damit Card verschwindet
 
 # --- 2️⃣ Aktie hinzufügen Tab ---
 with tab2:
