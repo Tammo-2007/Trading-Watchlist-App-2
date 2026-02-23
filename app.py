@@ -35,15 +35,15 @@ new_ticker = col_t.text_input("Ticker", help="z.B. RHM oder CSG.AS")
 new_name = col_n.text_input("Name (optional)", help="Optionaler Firmenname")
 new_status = col_s.selectbox("Status", ["Beobachtung","Besitzt"], help="Besitzt: Aktie im Portfolio, Beobachtung: nur beobachten")
 
+# Hinzufügen Button
 if col_b.button("Hinzufügen"):
     t = new_ticker.strip().upper()
-    # --- Automatisch .DE ergänzen falls keine Börsenendung ---
     if "." not in t:
         t += ".DE"
     n = new_name.strip() if new_name else t
     if t and not any(a["Ticker"]==t for a in st.session_state.aktien_liste):
         st.session_state.aktien_liste.append({"Ticker": t, "Name": n, "Status": new_status})
-    st.experimental_rerun()
+    st.experimental_rerun()  # nur hier nach Button-Event
 
 # --- Portfolio Übersicht ---
 st.subheader("📋 Portfolio")
@@ -58,14 +58,14 @@ for i,a in enumerate(st.session_state.aktien_liste):
 if to_delete:
     for i in reversed(to_delete):
         st.session_state.aktien_liste.pop(i)
-    st.experimental_rerun()
+    st.experimental_rerun()  # nur hier nach Button-Event
 
-# --- Auswahl der Aktie ---
+# --- Aktie auswählen ---
 if st.session_state.aktien_liste:
     ticker_options = [a["Ticker"] for a in st.session_state.aktien_liste]
     selected_ticker = st.selectbox("Wähle eine Aktie", ticker_options)
 
-    # --- Kursdaten abrufen ---
+    # Kursdaten abrufen
     df = yf.Ticker(selected_ticker).history(period="6mo")
     if not df.empty:
         df["SMA20"] = ta.trend.SMAIndicator(df["Close"], sma20_period).sma_indicator()
@@ -75,7 +75,7 @@ if st.session_state.aktien_liste:
         current_price = df["Close"].iloc[-1]
         st.metric(label=f"{selected_ticker} Preis", value=f"{current_price:.2f} €")
 
-        # --- Advanced Signal ---
+        # Advanced Signal
         df_clean = df.dropna(subset=["SMA20","SMA50"])
         if not df_clean.empty:
             last = df_clean.tail(1).iloc[0]
@@ -91,7 +91,7 @@ if st.session_state.aktien_liste:
         else:
             st.warning("Nicht genügend Daten für Advanced Signal")
 
-        # --- Historischer Chart ---
+        # Historischer Chart
         df_reset = df.reset_index()
         df_plot = df_reset[["Date","Close","SMA20","SMA50"]].dropna()
         if not df_plot.empty:
@@ -104,9 +104,9 @@ if st.session_state.aktien_liste:
             )
             st.altair_chart(chart, use_container_width=True)
         else:
-            st.warning("Nicht genügend Daten für Chartanzeige (NaNs entfernt)")
+            st.warning("Nicht genügend Daten für Chartanzeige")
 
-        # --- News ---
+        # News
         if FEEDPARSER_AVAILABLE:
             st.subheader("📰 News")
             RSS_FEEDS = {
