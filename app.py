@@ -12,7 +12,15 @@ if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = []
 
 # --- Hilfsfunktionen ---
+def normalize_ticker(ticker):
+    """Automatisch Ticker formatieren: Großbuchstaben + .DE falls kein Punkt"""
+    ticker = ticker.strip().upper()
+    if ticker and "." not in ticker:
+        ticker += ".DE"
+    return ticker
+
 def ticker_valid(ticker):
+    """Prüft, ob YFinance Daten liefert"""
     if not ticker:
         return False
     try:
@@ -21,13 +29,8 @@ def ticker_valid(ticker):
     except:
         return False
 
-def normalize_ticker(ticker):
-    ticker = ticker.upper()
-    if "." not in ticker:
-        ticker += ".DE"
-    return ticker
-
 def get_company_name(ticker):
+    """Versucht Namen von YFinance zu holen"""
     try:
         info = yf.Ticker(ticker).info
         return info.get("shortName", ticker)
@@ -36,8 +39,9 @@ def get_company_name(ticker):
 
 @st.cache_data
 def load_data(ticker):
+    """Kursdaten + technische Indikatoren laden"""
+    df = pd.DataFrame()
     try:
-        df = pd.DataFrame()
         for period in ["6mo","1y","max"]:
             df = yf.download(ticker, period=period, interval="1d", progress=False)
             if not df.empty and "Close" in df:
@@ -56,6 +60,7 @@ def load_data(ticker):
         return pd.DataFrame()
 
 def advanced_signal(row):
+    """Berechnet Signal für Chart"""
     try:
         sma20 = float(row.get("SMA20", 0))
         sma50 = float(row.get("SMA50", 0))
@@ -95,7 +100,7 @@ def forecast_trend(df):
 
 # --- Sidebar: Aktien verwalten ---
 st.sidebar.header("Aktien verwalten")
-new_ticker = st.sidebar.text_input("Ticker (z.B. RHM.DE)")
+new_ticker = st.sidebar.text_input("Ticker (z.B. RHM)")
 new_name = st.sidebar.text_input("Name (optional)")
 new_status = st.sidebar.selectbox("Status", ["Beobachtung","Besitzt"])
 
@@ -117,20 +122,18 @@ to_delete = []
 for i,a in enumerate(st.session_state.aktien_liste):
     cols = st.columns([0.05,0.4,0.2,0.15,0.2])
     selected = cols[0].checkbox("", key=f"chk_{i}")
+    status_color = "🟢" if a["Status"]=="Besitzt" else "🟡"
     cols[1].write(f"{a['Name']} ({a['Ticker']})")
-    cols[2].write(a["Status"])
+    cols[2].write(f"{status_color} {a['Status']}")
     delete = cols[4].button("Löschen", key=f"del_{i}")
-    
-    # Kursdaten & Signale laden, wenn Ticker existiert
-    df = load_data(a["Ticker"]) if a["Ticker"] else pd.DataFrame()
-    signal = forecast_trend(df)
-    cols[3].write(signal)
     
     if delete:
         to_delete.append(i)
-for i in reversed(to_delete):
-    st.session_state.aktien_liste.pop(i)
-    st.experimental_rerun()
+
+if to_delete:
+    for i in reversed(to_delete):
+        st.session_state.aktien_liste.pop(i)
+    st.experimental_rerun()  # nur einmal am Ende
 
 # --- Interaktive Analyse ---
 if st.session_state.aktien_liste:
