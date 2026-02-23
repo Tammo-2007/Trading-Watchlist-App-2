@@ -1,141 +1,127 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import ta
 import altair as alt
+import datetime
+import json
+import os
 
-# --- RSS News Parser ---
+# --- Feedparser optional für News ---
 try:
     import feedparser
-    FEEDPARSER_AVAILABLE = True
-except ModuleNotFoundError:
-    FEEDPARSER_AVAILABLE = False
+    FEED_AVAILABLE = True
+except ImportError:
+    FEED_AVAILABLE = False
 
-st.set_page_config(page_title="Trading Dashboard Kompakt", layout="wide")
-st.title("📊 Kompaktes Trading Dashboard – Alles auf einen Blick")
+# --- Portfolio-Datei ---
+PORTFOLIO_FILE = "portfolio.json"
 
-# --- Session State ---
-if "aktien_liste" not in st.session_state:
+# --- Portfolio laden ---
+if os.path.exists(PORTFOLIO_FILE):
+    with open(PORTFOLIO_FILE, "r") as f:
+        st.session_state.aktien_liste = json.load(f)
+else:
     st.session_state.aktien_liste = []
 
-# --- Einstellungen Signale ---
+# --- Portfolio speichern ---
+def save_portfolio():
+    with open(PORTFOLIO_FILE,"w") as f:
+        json.dump(st.session_state.aktien_liste, f)
+
+# --- App Header ---
+st.header("📊 Kompaktes Trading Dashboard – Alles auf einen Blick")
+
+# --- Signal Einstellungen ---
 st.subheader("🔧 Einstellungen für Signale")
-col1, col2, col3 = st.columns(3)
-sma20_period = col1.slider("SMA20 Periode", 5,50,20, help="Kurzfristiger gleitender Durchschnitt")
-sma50_period = col2.slider("SMA50 Periode", 10,200,50, help="Mittelfristiger gleitender Durchschnitt")
-vol_factor = col3.slider("Volumen Faktor",0.5,3.0,1.5, help="Multiplikator für Volumen-Signale")
+SMA20_period = st.slider("SMA20 Periode", 5, 50, 20, help="Kurzfristiger gleitender Durchschnitt")
+SMA50_period = st.slider("SMA50 Periode", 10, 200, 50, help="Langfristiger gleitender Durchschnitt")
+vol_factor = st.slider("Volumen Faktor", 0.5, 3.0, 1.0, help="Multiplikator für Volumensignale")
+RSI_weight = st.slider("RSI Gewicht", 0, 2, 1, help="Gewichtung RSI im Score")
+MACD_weight = st.slider("MACD Gewicht", 0, 2, 1, help="Gewichtung MACD im Score")
 
-col4, col5 = st.columns(2)
-trend_weight_rsi = col4.slider("RSI Gewicht",0,2,1, help="Gewichtung des RSI im Trend")
-trend_weight_macd = col5.slider("MACD Gewicht",0,2,1, help="Gewichtung des MACD im Trend")
-
-# --- Portfolio Verwaltung ---
+# --- Portfolio verwalten ---
 st.subheader("💼 Portfolio verwalten")
-col_t, col_n, col_s, col_b = st.columns([2,3,2,1])
-new_input = col_t.text_input("Ticker oder Name", help="z.B. RHM oder Rheinmetall")
-new_name = col_n.text_input("Name (optional)")
-new_status = col_s.selectbox("Status", ["Beobachtung","Besitzt"])
-if col_b.button("Hinzufügen"):
-    inp = new_input.strip()
-    if "." not in inp and len(inp)<5:
-        ticker = inp.upper() + ".DE"
-    else:
-        ticker = inp.upper()
-    name = new_name.strip() if new_name else ticker
-    if ticker and not any(a["Ticker"]==ticker for a in st.session_state.aktien_liste):
-        st.session_state.aktien_liste.append({"Ticker": ticker, "Name": name, "Status": new_status})
+with st.form("portfolio_form"):
+    ticker_or_name = st.text_input("Ticker oder Name", help="Trage Ticker z.B. RHM.DE oder den Namen ein")
+    name_optional = st.text_input("Name (optional)")
+    status = st.selectbox("Status", ["Besitzt", "Beobachtung"])
+    add_button = st.form_submit_button("Hinzufügen")
+    
+    if add_button:
+        # Prüfen, ob bereits vorhanden
+        found = any(a["ticker"].upper() == ticker_or_name.upper() for a in st.session_state.aktien_liste)
+        if not found:
+            st.session_state.aktien_liste.append({
+                "ticker": ticker_or_name.upper(),
+                "name": name_optional,
+                "status": status
+            })
+            save_portfolio()
+        st.experimental_rerun()
 
 # --- Portfolio Übersicht ---
 st.subheader("📋 Portfolio")
-to_delete = []
-for i,a in enumerate(st.session_state.aktien_liste):
-    cols = st.columns([0.05,0.5,0.2,0.15])
-    selected = cols[0].checkbox("", key=f"chk_{i}", help="Markiere zum Auswählen der Aktie")
-    cols[1].write(f"{a['Name']} ({a['Ticker']})")
-    status_icon = "🟢" if a['Status']=="Besitzt" else "🟡"
-    cols[2].write(f"{status_icon} {a['Status']}")
-    if cols[3].button("Löschen", key=f"del_{i}", help="Klicke zum Löschen dieser Aktie"):
-        to_delete.append(i)
-
-if to_delete:
-    for i in reversed(to_delete):
+for i, a in enumerate(st.session_state.aktien_liste):
+    col1, col2, col3 = st.columns([3,1,1])
+    display_name = a["name"] if a["name"] else a["ticker"]
+    col1.text(f"{display_name} ({a['ticker']})")
+    col2.text("🟢 Besitzt" if a["status"]=="Besitzt" else "🟡 Beobachtung")
+    if col3.button("❌", key=f"del_{i}"):
         st.session_state.aktien_liste.pop(i)
+        save_portfolio()
+        st.experimental_rerun()
 
-# --- Aktie auswählen ---
-if st.session_state.aktien_liste:
-    ticker_options = [a["Ticker"] for a in st.session_state.aktien_liste]
-    selected_ticker = st.selectbox("Wähle eine Aktie", ticker_options, help="Hier die Aktie auswählen für Analyse")
+# --- Aktien auswählen ---
+selected_ticker = st.selectbox("Wähle eine Aktie", [a["ticker"] for a in st.session_state.aktien_liste])
 
-    # Kursdaten abrufen
-    df = yf.Ticker(selected_ticker).history(period="6mo")
-    if not df.empty:
-        df["SMA20"] = ta.trend.SMAIndicator(df["Close"], sma20_period).sma_indicator()
-        df["SMA50"] = ta.trend.SMAIndicator(df["Close"], sma50_period).sma_indicator()
+# --- Kursdaten laden ---
+@st.cache_data
+def load_data(ticker):
+    df = yf.download(ticker, period="6mo", interval="1d")
+    if df.empty:
+        return None
+    df.reset_index(inplace=True)
+    df["SMA20"] = df["Close"].rolling(SMA20_period).mean()
+    df["SMA50"] = df["Close"].rolling(SMA50_period).mean()
+    return df
 
-        st.subheader("💰 Aktueller Kurs & Trend")
-        current_price = df["Close"].iloc[-1]
-        st.metric(label=f"{selected_ticker} Preis", value=f"{current_price:.2f} €")
+df = load_data(selected_ticker)
+st.subheader("💰 Aktueller Kurs & Trend")
 
-        # Advanced Signal
-        df_clean = df.dropna(subset=["SMA20","SMA50"])
-        if not df_clean.empty:
-            last = df_clean.tail(1).iloc[0]
-            score = 0
-            score += 1 if last["SMA20"]>last["SMA50"] else -1
-            rsi = ta.momentum.RSIIndicator(df["Close"],14).rsi().dropna().iloc[-1]
-            macd = ta.trend.MACD(df["Close"]).macd().dropna().iloc[-1]
-            macd_signal = ta.trend.MACD(df["Close"]).macd_signal().dropna().iloc[-1]
-            score += trend_weight_rsi*(1 if rsi<30 else (-1 if rsi>70 else 0))
-            score += trend_weight_macd*(1 if macd>macd_signal else -1)
-            if score>=2:
-                signal = "Stark Kauf"
-                color = "green"
-            elif score<=-2:
-                signal = "Stark Verkauf"
-                color = "red"
-            else:
-                signal = "Halten"
-                color = "orange"
-            st.markdown(f"**Advanced Signal:** <span style='color:{color}'>{signal}</span>", unsafe_allow_html=True)
-        else:
-            st.warning("Nicht genügend Daten für Advanced Signal")
-
-        # Chart mit Tooltips
-        df_reset = df.reset_index()
-        df_plot = df_reset[["Date","Close","SMA20","SMA50"]].dropna()
-        if not df_plot.empty and len(df_plot)>1:
-            chart = alt.Chart(df_plot).transform_fold(
-                ["Close","SMA20","SMA50"], as_=["Serie","Wert"]
-            ).mark_line().encode(
-                x=alt.X("Date:T", title="Datum"),
-                y=alt.Y("Wert:Q", title="Preis"),
-                color="Serie:N",
-                tooltip=["Date:T","Serie:N","Wert:Q"]
-            ).interactive()
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.warning("Nicht genügend Daten für Chartanzeige")
-
-        # RSS-News
-        if FEEDPARSER_AVAILABLE:
-            st.subheader("📰 News")
-            RSS_FEEDS = {
-                "Finanzfluss": "https://www.finanzfluss.de/feed/",
-                "Finanztipps": "https://www.finanztipps.de/rss/news.xml",
-                "Focus Money": "https://www.focus.de/finanzen/rss/finanzen-rss.xml"
-            }
-            for name,url in RSS_FEEDS.items():
-                feed = feedparser.parse(url)
-                with st.expander(name):
-                    count=0
-                    for e in feed.entries:
-                        if selected_ticker.split('.')[0].upper() in e.get("title","").upper():
-                            st.write(f"- [{e.get('title')}]({e.get('link')})")
-                            count+=1
-                            if count>=5: break
-        else:
-            st.warning("RSS-News nicht verfügbar (installiere feedparser)")
-    else:
-        st.warning("Keine Kursdaten verfügbar")
+if df is None or df.empty:
+    st.warning(f"Für {selected_ticker} sind noch keine Kursdaten verfügbar oder Ticker ungültig.")
 else:
-    st.info("Bitte trage Aktien ein, um Analysen zu sehen.")
+    st.text(f"{selected_ticker} Preis: {df['Close'].iloc[-1]:.2f} €")
+    
+    # --- Chart für letzte 3 Monate ---
+    end_date = df["Date"].max()
+    start_date = end_date - pd.Timedelta(days=90)
+    df_plot = df[(df["Date"] >= start_date) & (df["Date"] <= end_date)]
+    
+    chart = alt.Chart(df_plot).transform_fold(
+        ["Close","SMA20","SMA50"], as_=["Serie","Wert"]
+    ).mark_line().encode(
+        x=alt.X("Date:T", title="Datum", axis=alt.Axis(labelAngle=-45)),
+        y=alt.Y("Wert:Q", title="Preis"),
+        color="Serie:N",
+        tooltip=["Date:T","Serie:N","Wert:Q"]
+    ).properties(
+        width=800,
+        height=400
+    )  # kein .interactive() → kein Zoom/Scroll
+    st.altair_chart(chart, use_container_width=False)
+
+# --- RSS-News ---
+st.subheader("📰 RSS-News")
+if FEED_AVAILABLE:
+    feeds = [
+        "https://www.finanzfluss.de/feed/",
+        "https://www.finanztipps.de/feed/",
+        "https://www.focus.de/finanzen/rss.xml"
+    ]
+    for feed_url in feeds:
+        feed = feedparser.parse(feed_url)
+        for entry in feed.entries[:5]:
+            st.markdown(f"- [{entry.title}]({entry.link})")
+else:
+    st.info("RSS-News nicht verfügbar (installiere feedparser)")
