@@ -17,16 +17,13 @@ st.title("📊 Kompaktes Trading Dashboard Pro")
 if "portfolio" not in st.session_state:
     st.session_state.portfolio = []
 
-# --- Eingabe: Signaleinstellungen & Aktie hinzufügen ---
+# --- Kompakte Eingabe: Signaleinstellungen & Aktie hinzufügen ---
 with st.expander("🔧 Signaleinstellungen & Aktie hinzufügen", expanded=True):
-    col1, col2, col3 = st.columns([3,2,2])
-    with col1:
-        ticker_input = st.text_input("Ticker (z.B. RHM.DE)", help="Gib das Börsenkürzel der Aktie ein")
-    with col2:
-        kaufpreis = st.number_input("Kaufpreis (€)", min_value=0.0, step=0.01, format="%.2f", help="Preis pro Aktie beim Kauf")
-    with col3:
-        st.number_input("Stückzahl", min_value=1, step=1, key="stk", help="Anzahl der gekauften Aktien")
-    status = st.selectbox("Status", ["Besitzt", "Beobachtung"], help="Besitzt = im Depot, Beobachtung = Watchlist")
+    cols = st.columns([3,2,2,2])
+    ticker_input = cols[0].text_input("Ticker (z.B. RHM.DE)", help="Börsenkürzel der Aktie")
+    kaufpreis = cols[1].number_input("Kaufpreis (€)", min_value=0.0, step=0.01, format="%.2f", help="Preis pro Aktie beim Kauf")
+    st.session_state.stk = cols[2].number_input("Stückzahl", min_value=1, step=1, key="stk", help="Anzahl der gekauften Aktien")
+    status = cols[3].selectbox("Status", ["Besitzt", "Beobachtung"], help="Besitzt = im Depot, Beobachtung = Watchlist")
 
     if st.button("Aktie hinzufügen"):
         if ticker_input.strip() == "":
@@ -40,7 +37,7 @@ with st.expander("🔧 Signaleinstellungen & Aktie hinzufügen", expanded=True):
                 "Gebühr": 1.0
             })
             st.success(f"Aktie {ticker_input.upper()} hinzugefügt!")
-            st.experimental_rerun()
+            st.experimental_rerun()  # wird nur hier beim Button-Klick aufgerufen
 
 # --- Portfolio anzeigen ---
 st.subheader("📋 Portfolio")
