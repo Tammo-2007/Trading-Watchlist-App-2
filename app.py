@@ -86,18 +86,32 @@ with tab1:
                 return row["Kaufpreis"] * 0.95
         portfolio["Stop-Loss-Empfehlung"] = portfolio.apply(stop_loss_volatility, axis=1)
 
-        # Anzeige als Cards
+        # Anzeige als Cards (flackerfrei, dunkler Hintergrund, schwarze Schrift)
         for _, row in portfolio.iterrows():
-            color = "🟢" if row["Gewinn/Verlust"] >= 0 else "🔴"
+            if row["Gewinn/Verlust"] > 0:
+                color = "🟢"
+            elif row["Gewinn/Verlust"] == 0:
+                color = "🟡"
+            else:
+                color = "🔴"
+
             st.markdown(f"""
-            <div style="border:1px solid #ccc; padding:15px; border-radius:10px; margin-bottom:10px; background-color:#f7f7f7;">
-            <b>{row['Ticker']} {color}</b><br>
-            Status: {row['Status']}<br>
-            Aktueller Preis: {row['Aktueller Preis'] if row['Aktueller Preis'] else 'Kein Kurs'} €<br>
-            Positionswert: {row['Positionswert']:.2f} €<br>
-            Gewinn/Verlust: {row['Gewinn/Verlust']:.2f} €<br>
-            📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €<br>
-            ⚠️ Stop-Loss Empfehlung: {row['Stop-Loss-Empfehlung']:.2f} €
+            <div style="
+                border:1px solid #ccc;
+                padding:15px;
+                border-radius:10px;
+                margin-bottom:10px;
+                background-color:#e0e0e0;
+                color:#000000;
+                font-weight:bold;
+                ">
+                {row['Ticker']} {color}<br>
+                Status: {row['Status']}<br>
+                Aktueller Preis: {row['Aktueller Preis'] if row['Aktueller Preis'] else 'Kein Kurs'} €<br>
+                Positionswert: {row['Positionswert']:.2f} €<br>
+                Gewinn/Verlust: {row['Gewinn/Verlust']:.2f} €<br>
+                📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €<br>
+                ⚠️ Stop-Loss Empfehlung: {row['Stop-Loss-Empfehlung']:.2f} €
             </div>
             """, unsafe_allow_html=True)
 
