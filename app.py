@@ -37,27 +37,49 @@ st.title("📊 Trading Dashboard Pro")
 st.subheader("💼 Aktie hinzufügen")
 
 with st.form("add_stock"):
+
     ticker = st.text_input("Ticker (z.B. RHM.DE)")
-    buy_price = st.number_input("Kaufpreis (€)", min_value=0.0, step=0.1)
-    quantity = st.number_input("Stückzahl", min_value=1, step=1)
+
+    input_mode = st.radio(
+        "Eingabemodus",
+        ["Stückzahl eingeben", "Gesamtbetrag eingeben"]
+    )
+
+    buy_price = st.number_input("Kaufpreis pro Aktie (€)", min_value=0.0, step=0.1)
+
+    if input_mode == "Stückzahl eingeben":
+        quantity = st.number_input("Stückzahl", min_value=1.0, step=1.0)
+        total_input = None
+    else:
+        total_input = st.number_input("Gesamtinvestition (€)", min_value=0.0, step=10.0)
+        quantity = None
+
     status = st.selectbox("Status", ["Besitzt", "Beobachtung"])
+
     submitted = st.form_submit_button("Hinzufügen")
 
 if submitted and ticker:
 
     ticker = ticker.upper().strip()
-
     test_df = yf.download(ticker, period="5d", interval="1d")
 
     if test_df.empty:
         st.error("Ticker ungültig oder keine Daten verfügbar.")
     else:
+
+        if input_mode == "Gesamtbetrag eingeben":
+            if buy_price > 0:
+                quantity = total_input / buy_price
+            else:
+                quantity = 0
+
         st.session_state.portfolio.append({
             "ticker": ticker,
-            "buy_price": buy_price,
-            "quantity": quantity,
+            "buy_price": float(buy_price),
+            "quantity": float(quantity),
             "status": status
         })
+
         save_portfolio()
         st.success(f"{ticker} hinzugefügt.")
 
@@ -89,7 +111,6 @@ if st.session_state.portfolio:
             total_value += position_value
             total_invested += invested
 
-            # Trend Signal
             df["SMA20"] = df["Close"].rolling(20).mean()
             df["SMA50"] = df["Close"].rolling(50).mean()
 
