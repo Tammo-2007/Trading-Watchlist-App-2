@@ -4,7 +4,7 @@ import yfinance as yf
 import ta
 import altair as alt
 
-# Optional: RSS News
+# RSS News
 try:
     import feedparser
     FEEDPARSER_AVAILABLE = True
@@ -36,7 +36,6 @@ new_input = col_t.text_input("Ticker oder Name", help="z.B. RHM oder Rheinmetall
 new_name = col_n.text_input("Name (optional)")
 new_status = col_s.selectbox("Status", ["Beobachtung","Besitzt"])
 if col_b.button("Hinzufügen"):
-    # Automatisch Ticker auflösen
     inp = new_input.strip()
     if "." not in inp and len(inp)<5:  # kurzer Ticker, .DE ergänzen
         ticker = inp.upper() + ".DE"
@@ -51,10 +50,10 @@ st.subheader("📋 Portfolio")
 to_delete = []
 for i,a in enumerate(st.session_state.aktien_liste):
     cols = st.columns([0.05,0.5,0.2,0.15])
-    selected = cols[0].checkbox("", key=f"chk_{i}")
+    selected = cols[0].checkbox("", key=f"chk_{i}", help="Markiere zum Auswählen der Aktie")
     cols[1].write(f"{a['Name']} ({a['Ticker']})")
     cols[2].write(f"{'🟢' if a['Status']=='Besitzt' else '🟡'} {a['Status']}")
-    if cols[3].button("Löschen", key=f"del_{i}"):
+    if cols[3].button("Löschen", key=f"del_{i}", help="Klicke zum Löschen dieser Aktie"):
         to_delete.append(i)
 
 if to_delete:
@@ -64,7 +63,7 @@ if to_delete:
 # --- Aktie auswählen ---
 if st.session_state.aktien_liste:
     ticker_options = [a["Ticker"] for a in st.session_state.aktien_liste]
-    selected_ticker = st.selectbox("Wähle eine Aktie", ticker_options)
+    selected_ticker = st.selectbox("Wähle eine Aktie", ticker_options, help="Hier die Aktie auswählen für Analyse")
 
     # Kursdaten abrufen
     df = yf.Ticker(selected_ticker).history(period="6mo")
@@ -92,17 +91,18 @@ if st.session_state.aktien_liste:
         else:
             st.warning("Nicht genügend Daten für Advanced Signal")
 
-        # Historischer Chart
+        # Historischer Chart mit Tooltips
         df_reset = df.reset_index()
         df_plot = df_reset[["Date","Close","SMA20","SMA50"]].dropna()
         if not df_plot.empty and len(df_plot)>1:
             chart = alt.Chart(df_plot).transform_fold(
                 ["Close","SMA20","SMA50"], as_=["Serie","Wert"]
             ).mark_line().encode(
-                x="Date:T",
-                y="Wert:Q",
-                color="Serie:N"
-            )
+                x=alt.X("Date:T", title="Datum"),
+                y=alt.Y("Wert:Q", title="Preis"),
+                color="Serie:N",
+                tooltip=["Date:T","Serie:N","Wert:Q"]
+            ).interactive()
             st.altair_chart(chart, use_container_width=True)
         else:
             st.warning("Nicht genügend Daten für Chartanzeige")
@@ -118,9 +118,12 @@ if st.session_state.aktien_liste:
             for name,url in RSS_FEEDS.items():
                 feed = feedparser.parse(url)
                 with st.expander(name):
-                    for e in feed.entries[:5]:
+                    count=0
+                    for e in feed.entries:
                         if selected_ticker.split('.')[0].upper() in e.get("title","").upper():
                             st.write(f"- [{e.get('title')}]({e.get('link')})")
+                            count+=1
+                            if count>=5: break
         else:
             st.warning("RSS-News nicht verfügbar (installiere feedparser)")
     else:
