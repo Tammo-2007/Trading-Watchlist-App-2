@@ -2,8 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import uuid
-import matplotlib.pyplot as plt
-from io import BytesIO
+import altair as alt
 
 st.set_page_config(page_title="Trading Dashboard Pro", layout="wide")
 st.markdown("<h1 style='text-align: center;'>📊 Trading Dashboard Pro</h1>", unsafe_allow_html=True)
@@ -34,19 +33,17 @@ def get_latest_price(ticker):
     except:
         return 0.0
 
-# --- Mini-Chart PNG erstellen ---
+# --- Mini-Chart Altair ---
 def create_mini_chart(ticker):
     try:
         data = yf.download(ticker, period="1mo", interval="1d", progress=False)
         if "Close" in data and not data.empty:
-            fig, ax = plt.subplots(figsize=(2.4, 0.5))
-            ax.plot(data["Close"], color="#1a73e8", linewidth=1)
-            ax.axis('off')
-            buf = BytesIO()
-            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
-            plt.close(fig)
-            buf.seek(0)
-            return buf
+            df_plot = data.reset_index()[["Date", "Close"]]
+            chart = alt.Chart(df_plot).mark_line(color="#1a73e8").encode(
+                x=alt.X("Date:T"),
+                y=alt.Y("Close:Q")
+            ).properties(width=200, height=50)
+            return chart
         return None
     except:
         return None
@@ -87,10 +84,10 @@ with tab1:
                     unsafe_allow_html=True
                 )
 
-                # Mini-Chart direkt darunter
+                # Mini-Chart
                 mini_chart = create_mini_chart(row['Ticker'])
                 if mini_chart:
-                    st.image(mini_chart)
+                    st.altair_chart(mini_chart, use_container_width=False)
 
                 # Chart-Button
                 if st.button(f"Chart anzeigen: {row['Ticker']}", key=f"chart_{row['ID']}"):
