@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import uuid
+import numpy as np
 import altair as alt
 
 # --- Page Config ---
@@ -24,7 +25,7 @@ if st.session_state.portfolio.empty:
     ]
     st.session_state.portfolio = pd.DataFrame(demo_data)
 
-# --- Preis pro Ticker abrufen ---
+# --- Preis pro Ticker ---
 def get_latest_price(ticker):
     try:
         data = yf.download(ticker, period="5d", interval="1d", progress=False)
@@ -34,28 +35,33 @@ def get_latest_price(ticker):
     except:
         return 0.0
 
-# --- Sparkline Data ---
-def get_sparkline_data(ticker, points=10):
+# --- Sparkline Mini-Chart ---
+def get_sparkline_ascii(ticker, points=10):
     try:
         data = yf.download(ticker, period="1mo", interval="1d", progress=False)
         if "Close" in data and not data.empty:
-            return data["Close"].tail(points).fillna(0).astype(float)
-        return pd.Series([0]*points)
+            series = data["Close"].tail(points).fillna(0).astype(float)
+            # Normalisieren zwischen 0 und 1
+            min_v, max_v = series.min(), series.max()
+            if max_v - min_v == 0:
+                return "─"*points
+            normalized = ((series - min_v)/(max_v - min_v) * 7).round().astype(int)
+            bars = "▁▂▃▄▅▆▇█"
+            return "".join([bars[int(n)] for n in normalized])
+        return "─"*points
     except:
-        return pd.Series([0]*points)
+        return "─"*points
 
 # --- Tabs ---
 tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie hinzufügen", "📈 Kurs & Chart"])
 
+# --- Portfolio Cards ---
 with tab1:
     st.subheader("Dein Portfolio (Cards)")
-
     df = st.session_state.portfolio.copy()
     if not df.empty:
         df["Aktueller Preis"] = df["Ticker"].apply(get_latest_price)
-
-        # --- Dynamische Cards ---
-        cols_per_row = 6
+        cols_per_row = 4  # fixe Anzahl pro Reihe
         for i in range(0, len(df), cols_per_row):
             cols = st.columns(cols_per_row, gap="small")
             for j, row in df.iloc[i:i+cols_per_row].iterrows():
@@ -66,66 +72,56 @@ with tab1:
                     price_display = f"{price:.2f} €" if price > 0 else "Kein Kurs"
 
                     status_icon = "🟢" if row['Status']=="Besitzt" else "🟡"
+                    pnl_color = "#0a7f0a" if gewinn_verlust > 0 else "#c40000" if gewinn_verlust < 0 else "#1a73e8"
+                    spark_ascii = get_sparkline_ascii(row['Ticker'])
 
-                    # P/L Farbe
-                    if gewinn_verlust > 0:
-                        pnl_color = "#0a7f0a"
-                        spark_color = "#0a7f0a"
-                    elif gewinn_verlust < 0:
-                        pnl_color = "#c40000"
-                        spark_color = "#c40000"
-                    else:
-                        pnl_color = "#1a73e8"
-                        spark_color = "#1a73e8"
-
-                    # Sparkline
-                    spark_data = get_sparkline_data(row['Ticker'])
-                    spark_data = spark_data.fillna(0).astype(float)
-                    spark_sum = float(spark_data.sum())
-
-                    spark_chart_html = ""
-                    if len(spark_data) > 0 and spark_sum > 0:
-                        spark_df = spark_data.reset_index()
-                        spark_df.columns = ["index","Close"]
-                        spark_chart = alt.Chart(spark_df).mark_line(color=spark_color, strokeWidth=2).encode(
-                            x='index',
-                            y='Close:Q',
-                            tooltip=["Close"]
-                        ).properties(height=50, width=180)
-                        st.altair_chart(spark_chart, use_container_width=True)
-                    else:
-                        st.markdown("<p style='color:#555; font-size:12px;'>Keine Kursdaten</p>", unsafe_allow_html=True)
-
-                    # Card HTML mit Mouseover-Effekt
                     st.markdown(
                         f"""
                         <div style="border-radius:12px; padding:12px; margin-bottom:8px;
-                                    background-color:#ffffff; box-shadow: 1px 1px 8px rgba(0,0,0,0.2);
-                                    color:#222; font-size:13px; transition: transform 0.2s;
-                                    ">
+                                    background-color:#ffffff; box-shadow: 1px 1px 6px rgba(0,0,0,0.15);
+                                    color:#222; font-size:13px; width:220px; min-height:180px;
+                                    overflow:hidden; transition: transform 0.2s;">
                             <h4>{row['Ticker']} {status_icon}</h4>
                             <p>Status: <b>{row['Status']}</b></p>
                             <p>Aktueller Preis: <b>{price_display}</b></p>
                             <p>Positionswert: <b>{positionswert:.2f} €</b></p>
                             <p style="color:{pnl_color}; font-weight:bold;">Gewinn/Verlust: <b>{gewinn_verlust:.2f} €</b></p>
                             <p>📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €</p>
+                            <p style="font-family: monospace; font-size:14px; color:#555;">{spark_ascii}</p>
+                            <button onclick="window.dispatchEvent(new CustomEvent('open_chart', {{detail:'{row['Ticker']}'}}))">Chart</button>
                         </div>
                         <style>
                         div:hover {{
                             transform: scale(1.03);
-                            box-shadow: 2px 2px 12px rgba(0,0,0,0.3);
+                            box-shadow: 2px 2px 12px rgba(0,0,0,0.25);
                         }}
                         </style>
                         """,
                         unsafe_allow_html=True
                     )
 
-                    # Chart Button
-                    if st.button(f"Chart {row['ID']}", key=f"chart_{row['ID']}"):
-                        st.session_state.selected_ticker = row["Ticker"]
-                        st.experimental_rerun()
-
-                    # Löschen Button
                     if st.button("Löschen", key=row["ID"]):
                         st.session_state.portfolio = df[df["ID"] != row["ID"]].reset_index(drop=True)
                         st.experimental_rerun()
+
+# --- Chart Tab (Popup / Modal) ---
+with tab3:
+    st.subheader("Kursverlauf & SMA")
+    selected_ticker = getattr(st.session_state, "selected_ticker", None)
+    selected_ticker = st.selectbox("Aktie wählen", [""] + list(st.session_state.portfolio["Ticker"].unique()), index=0 if not selected_ticker else list(st.session_state.portfolio["Ticker"].unique()).index(selected_ticker)+1)
+    if selected_ticker:
+        data_hist = yf.download(selected_ticker, period="1y", interval="1d", progress=False)
+        if not data_hist.empty:
+            data_hist["SMA20"] = data_hist["Close"].rolling(20).mean()
+            data_hist["SMA50"] = data_hist["Close"].rolling(50).mean()
+            df_chart = data_hist.reset_index()
+            base = alt.Chart(df_chart).encode(x="Date:T")
+            chart = alt.layer(
+                base.mark_line(color="blue").encode(y="Close:Q", tooltip=["Date:T","Close:Q"]),
+                base.mark_line(color="orange").encode(y="SMA20:Q", tooltip=["Date:T","SMA20:Q"]),
+                base.mark_line(color="green").encode(y="SMA50:Q", tooltip=["Date:T","SMA50:Q"])
+            ).resolve_scale(y="shared").properties(height=400)
+            st.altair_chart(chart, use_container_width=True)
+            st.markdown("**Legende:** Blau = Close, Orange = SMA20, Grün = SMA50")
+        else:
+            st.error("Chart konnte nicht geladen werden.")
