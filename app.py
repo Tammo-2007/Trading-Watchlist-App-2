@@ -140,23 +140,27 @@ st.dataframe(portfolio_df.style.apply(color_row, axis=1))
 
 # --- Interaktive Aktien-Analyse ---
 st.header("📊 Interaktive Aktien-Analyse")
-if portfolio_df.empty:
+if not st.session_state.aktien_liste:
     st.info("Bitte trage zuerst Aktien in der Sidebar ein.")
 else:
-    # --- Auswahl über Display-String (stabil nach Löschen/Hinzufügen) ---
-    portfolio_display = [f"{a['Name']} ({a['Ticker']}) [{a['Status']}]" for a in st.session_state.aktien_liste]
-    selected_portfolio = st.selectbox("Wähle eine Aktie aus deinem Portfolio", portfolio_display)
-    selected_index = portfolio_display.index(selected_portfolio)
-    selected_portfolio_ticker = st.session_state.aktien_liste[selected_index]["Ticker"]
+    # --- Stabile Portfolio-Auswahl ---
+    ticker_options = [a["Ticker"] if a["Ticker"] else a["Name"] for a in st.session_state.aktien_liste]
+    display_labels = [f"{a['Name']} ({a['Ticker']}) [{a['Status']}]" for a in st.session_state.aktien_liste]
 
-    df_selected = load_data(selected_portfolio_ticker)
+    selected_ticker = st.selectbox(
+        "Wähle eine Aktie aus deinem Portfolio",
+        options=ticker_options,
+        format_func=lambda x: display_labels[ticker_options.index(x)]
+    )
+
+    df_selected = load_data(selected_ticker)
     if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
         tendenz = forecast_trend(df_selected)
         df_reset = df_selected.reset_index()
 
         # --- Charts ---
-        st.subheader(f"📈 Kurs + Signale für {selected_portfolio_ticker}")
+        st.subheader(f"📈 Kurs + Signale für {selected_ticker}")
         chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T", y="Close:Q")
         if show_sma:
             chart += alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T", y="SMA20:Q")
