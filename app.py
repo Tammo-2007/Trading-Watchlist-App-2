@@ -1,107 +1,130 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
+import yfinance as yf
 import altair as alt
 from datetime import datetime
 
-# --- Initialisierung ---
+st.set_page_config(page_title="Trading Dashboard Pro", layout="wide")
+
+# -----------------------
+# Session-State Setup
+# -----------------------
 if "portfolio" not in st.session_state:
-    st.session_state.portfolio = pd.DataFrame(columns=[
-        "Ticker", "Kaufpreis", "Stückzahl", "Stop-Loss", "Take-Profit", "Status", "Gebühr"
-    ])
-
-st.title("📊 Kompaktes Trading Dashboard Pro")
-
-# --- Signaleinstellungen & Aktie hinzufügen ---
-st.subheader("🔧 Signaleinstellungen & Aktie hinzufügen")
-cols = st.columns([2, 1, 1, 1, 1, 1])
-ticker_input = cols[0].text_input("Ticker (z.B. RHM.DE)", "")
-price_input = cols[1].number_input("Kaufpreis (€)", min_value=0.01, step=0.01)
-stk_input = cols[2].number_input("Stückzahl", min_value=1, step=1)
-stop_loss_input = cols[3].number_input("Stop-Loss €", min_value=0.0, step=0.01)
-take_profit_input = cols[4].number_input("Take-Profit €", min_value=0.0, step=0.01)
-status_input = cols[5].selectbox("Status", ["Besitzt", "Beobachtung"])
-
-add_btn = st.button("Aktie hinzufügen")
-
-if add_btn and ticker_input:
-    new_row = pd.DataFrame([{
-        "Ticker": ticker_input.upper(),
-        "Kaufpreis": price_input,
-        "Stückzahl": stk_input,
-        "Stop-Loss": stop_loss_input,
-        "Take-Profit": take_profit_input,
-        "Status": status_input,
-        "Gebühr": 1.00  # Kaufgebühr
-    }])
-    st.session_state.portfolio = pd.concat(
-        [st.session_state.portfolio, new_row], ignore_index=True
+    st.session_state.portfolio = pd.DataFrame(
+        columns=["Ticker", "Kaufpreis", "Stückzahl", "Stop-Loss", "Take-Profit", "Status", "Gebühr"]
     )
-    st.success(f"Aktie {ticker_input.upper()} hinzugefügt!")
-    st.experimental_rerun()
 
-# --- Portfolio anzeigen ---
+# -----------------------
+# Kompakte Eingabemaske
+# -----------------------
+st.subheader("🔧 Signaleinstellungen & Aktie hinzufügen")
+cols = st.columns([2, 1, 1, 1, 1, 1])  # kompakte Breite
+ticker = cols[0].text_input("Ticker (z.B. RHM.DE)", key="ticker")
+kaufpreis = cols[1].number_input("Kaufpreis (€)", min_value=0.01, step=0.01, key="price")
+stk = cols[2].number_input("Stückzahl", min_value=1, step=1, key="stk")
+stop_loss = cols[3].number_input("Stop-Loss €", min_value=0.0, step=0.01, key="sl")
+take_profit = cols[4].number_input("Take-Profit €", min_value=0.0, step=0.01, key="tp")
+status = cols[5].selectbox("Status", ["Besitzt", "Beobachtung"], key="status")
+gebühr = 1.0  # Kaufgebühr fest
+
+if st.button("Aktie hinzufügen"):
+    if ticker:
+        new_row = pd.DataFrame([{
+            "Ticker": ticker.upper(),
+            "Kaufpreis": kaufpreis,
+            "Stückzahl": stk,
+            "Stop-Loss": stop_loss,
+            "Take-Profit": take_profit,
+            "Status": status,
+            "Gebühr": gebühr
+        }])
+        st.session_state.portfolio = pd.concat(
+            [st.session_state.portfolio, new_row], ignore_index=True
+        )
+        st.success(f"Aktie {ticker.upper()} hinzugefügt!")
+        st.experimental_rerun()
+
+# -----------------------
+# Portfolio Tabelle
+# -----------------------
 st.subheader("📋 Portfolio")
-if st.session_state.portfolio.empty:
-    st.info("Noch keine Aktien im Portfolio.")
-else:
+if not st.session_state.portfolio.empty:
     df = st.session_state.portfolio.copy()
-    current_prices = []
-    pos_values = []
-    profits = []
+    
+    # Aktueller Kurs & Gewinn/Verlust
+    current_prices = {}
+    positions_value = []
+    profit_loss = []
     signals = []
-
+    
     for i, row in df.iterrows():
         try:
-            data = yf.Ticker(row["Ticker"]).history(period="1d")
-            current_price = data["Close"].iloc[-1] if not data.empty else 0
+            data = yf.download(row["Ticker"], period="1d", interval="1d")
+            current_price = data["Close"][-1] if not data.empty else 0
         except:
             current_price = 0
-
-        pos_value = current_price * row["Stückzahl"] - row["Gebühr"]
-        profit = pos_value - (row["Kaufpreis"] * row["Stückzahl"] + row["Gebühr"])
-        signal = "Halten" if profit >= 0 else "SELL"
-
-        current_prices.append(current_price)
-        pos_values.append(pos_value)
-        profits.append(profit)
-        signals.append(signal)
-
-    df["Aktueller Preis"] = current_prices
-    df["Positionswert"] = pos_values
-    df["Gewinn/Verlust"] = profits
+        current_prices[row["Ticker"]] = current_price
+        pos_val = current_price * row["Stückzahl"] - row["Gebühr"]
+        positions_value.append(pos_val)
+        pl = pos_val - (row["Kaufpreis"] * row["Stückzahl"] + row["Gebühr"])
+        profit_loss.append(pl)
+        signals.append("Halten" if pl >= 0 else "SELL")
+    
+    df["Aktueller Preis"] = df["Ticker"].map(current_prices)
+    df["Positionswert"] = positions_value
+    df["Gewinn/Verlust"] = profit_loss
     df["Signal"] = signals
-
-    # Portfolio-Tabelle mit Löschfunktion
+    
+    # Portfolio anzeigen mit Löschen-Button
     for i, row in df.iterrows():
-        cols = st.columns([1, 1, 1, 1, 1, 1])
+        cols = st.columns([2, 1, 1, 1, 1, 1])
         cols[0].write(row["Ticker"])
         cols[1].write(f"{row['Aktueller Preis']:.2f} €")
         cols[2].write(f"{row['Positionswert']:.2f} €")
-        cols[3].write(f"{row['Gewinn/Verlust']:.2f} €")
+        pl_display = f"{row['Gewinn/Verlust']:.2f} €"
+        if row['Gewinn/Verlust'] >= 0:
+            cols[3].success(pl_display)
+        else:
+            cols[3].error(pl_display)
         cols[4].write(row["Signal"])
-        if cols[5].button("❌ Löschen", key=f"del_{i}"):
+        if cols[5].button("❌", key=f"del_{i}"):
             st.session_state.portfolio.drop(i, inplace=True)
             st.session_state.portfolio.reset_index(drop=True, inplace=True)
             st.experimental_rerun()
+else:
+    st.info("Portfolio ist leer.")
 
-# --- Chart ---
+# -----------------------
+# Kursverlauf Chart
+# -----------------------
 st.subheader("📈 Kursverlauf")
-chart_ticker = st.selectbox("Aktie wählen", df["Ticker"] if not st.session_state.portfolio.empty else [""])
-timeframe = st.selectbox("Zeitraum", ["1d", "1wk", "1mo", "1y"], help="1d=Tag, 1wk=Woche, 1mo=Monat, 1y=Jahr")
+aktie = st.selectbox("Aktie wählen", st.session_state.portfolio["Ticker"] if not st.session_state.portfolio.empty else [""])
+zeitraum = st.selectbox("Zeitraum", ["1d", "1wk", "1mo", "1y"])
+st.caption("Abkürzungen: 1d = Tag, 1wk = Woche, 1mo = Monat, 1y = Jahr")
 
-if chart_ticker:
+if aktie:
     try:
-        hist = yf.Ticker(chart_ticker).history(period=timeframe)
+        hist = yf.download(aktie, period=zeitraum, interval="1d")
         hist.reset_index(inplace=True)
-        chart = alt.Chart(hist).mark_line().encode(
-            x="Date",
-            y="Close",
-            tooltip=["Date", "Close"]
-        ).properties(
-            width=700, height=300
-        )
+        hist["SMA20"] = hist["Close"].rolling(20).mean()
+        hist["SMA50"] = hist["Close"].rolling(50).mean()
+        
+        base = alt.Chart(hist).encode(x="Date:T")
+        close_line = base.mark_line(color="blue").encode(y="Close", tooltip=["Date", "Close"])
+        sma20_line = base.mark_line(color="orange").encode(y="SMA20", tooltip=["Date", "SMA20"])
+        sma50_line = base.mark_line(color="green").encode(y="SMA50", tooltip=["Date", "SMA50"])
+        
+        chart = alt.layer(close_line, sma20_line, sma50_line).interactive()
         st.altair_chart(chart, use_container_width=True)
-        st.markdown("**Abkürzungen:** 1d = Tag, 1wk = Woche, 1mo = Monat, 1y = Jahr")
     except:
-        st.warning("Chart konnte nicht geladen werden.")
+        st.error("Chart konnte nicht geladen werden.")
+
+# -----------------------
+# RSS News (optional)
+# -----------------------
+# import feedparser
+# st.subheader("📰 News")
+# feed_url = "https://www.finanzen.net/rss/aktien"
+# feed = feedparser.parse(feed_url)
+# for entry in feed.entries[:5]:
+#     st.markdown(f"- [{entry.title}]({entry.link})")
