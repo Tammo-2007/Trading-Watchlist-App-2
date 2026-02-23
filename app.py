@@ -27,7 +27,6 @@ def get_company_name(ticker):
 
 @st.cache_data
 def load_data(ticker, interval="1d", period="6mo"):
-    """Historische Daten für Charts + Signale"""
     try:
         df = yf.Ticker(ticker).history(period=period, interval=interval)
         if df.empty or "Close" not in df:
@@ -45,7 +44,6 @@ def load_data(ticker, interval="1d", period="6mo"):
 
 @st.cache_data
 def load_today_price(ticker):
-    """Aktueller Intraday-Kurs für heute"""
     try:
         df = yf.Ticker(ticker).history(period="1d", interval="1m")
         if df.empty:
@@ -56,7 +54,6 @@ def load_today_price(ticker):
 
 @st.cache_data
 def get_news(ticker):
-    """News für die Aktie"""
     try:
         news_list = yf.Ticker(ticker).news
         return news_list if news_list else []
@@ -172,6 +169,7 @@ if st.session_state.aktien_liste:
         format_func=lambda x: display_labels[ticker_options.index(x)]
     )
 
+    # Historische Daten + Signale
     df_selected = load_data(selected_ticker, interval=interval, period=period)
     current_price = load_today_price(selected_ticker)
     if current_price:
@@ -182,6 +180,7 @@ if st.session_state.aktien_liste:
         df_reset = df_selected.reset_index()
         tendenz = forecast_trend(df_selected)
 
+        # Historische Charts
         st.subheader(f"📈 Historische Charts + Signale für {selected_ticker}")
         chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T", y="Close:Q")
         chart += alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T", y="SMA20:Q")
@@ -194,10 +193,12 @@ if st.session_state.aktien_liste:
         )
         st.altair_chart(chart.interactive(), use_container_width=True)
 
+        # Advanced Signal & Trend
         st.subheader("📊 Advanced Signal & Trend")
         st.write("Trendprognose:", tendenz)
         st.dataframe(df_selected[["Close","SMA20","SMA50","RSI","MACD","MACD_signal","Advanced_Signal"]].tail(10))
 
+        # News
         st.subheader("📰 Aktuelle Nachrichten")
         news = get_news(selected_ticker)
         if news:
@@ -207,6 +208,20 @@ if st.session_state.aktien_liste:
                     st.write(article.get('link', ''))
         else:
             st.info("Keine aktuellen News verfügbar.")
+
+        # --- Intraday-Chart ---
+        intraday_df = yf.Ticker(selected_ticker).history(period="1d", interval="5m")
+        if not intraday_df.empty:
+            st.subheader("📉 Intraday-Kursverlauf heute")
+            intraday_df = intraday_df.reset_index()
+            intraday_chart = alt.Chart(intraday_df).mark_line(color="green").encode(
+                x="Datetime:T",
+                y="Close:Q",
+                tooltip=["Datetime:T","Close:Q"]
+            )
+            st.altair_chart(intraday_chart.interactive(), use_container_width=True)
+        else:
+            st.info("Keine Intraday-Daten für heute verfügbar.")
 
     else:
         st.warning(f"Für diese Aktie sind keine historischen Kursdaten verfügbar. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
