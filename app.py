@@ -33,8 +33,7 @@ def get_latest_price(ticker):
         data = yf.download(ticker, period="5d", interval="1d", progress=False)
         if "Close" in data and not data.empty:
             return float(data["Close"].iloc[-1])
-        else:
-            return 0.0
+        return 0.0
     except:
         return 0.0
 
@@ -43,23 +42,19 @@ def get_sparkline_data(ticker, points=10):
     try:
         data = yf.download(ticker, period="1mo", interval="1d", progress=False)
         if "Close" in data and not data.empty:
-            series = data["Close"].tail(points).fillna(0).astype(float)
-            return series
-        else:
-            return pd.Series([0]*points)
+            return data["Close"].tail(points).fillna(0).astype(float)
+        return pd.Series([0]*points)
     except:
         return pd.Series([0]*points)
 
 # --- 1️⃣ Portfolio Tab ---
 with tab1:
     st.subheader("Dein Portfolio (Cards)")
-
     df = st.session_state.portfolio.copy()
     if not df.empty:
-        # --- Aktueller Preis ---
         df["Aktueller Preis"] = df["Ticker"].apply(get_latest_price)
 
-        cols_per_row = 3
+        cols_per_row = 3  # Anzahl Cards pro Reihe
         for i in range(0, len(df), cols_per_row):
             cols = st.columns(cols_per_row)
             for j, row in df.iloc[i:i+cols_per_row].iterrows():
@@ -71,7 +66,7 @@ with tab1:
 
                     status_icon = "🟢" if row['Status']=="Besitzt" else "🟡"
 
-                    # Farbcode Gewinn/Verlust
+                    # Gewinn/Verlust Farbe
                     if gewinn_verlust > 0:
                         pnl_style = "color:#0a7f0a; font-weight:bold;"
                         spark_color = "#0a7f0a"
@@ -82,10 +77,10 @@ with tab1:
                         pnl_style = "color:#1a73e8; font-weight:bold;"
                         spark_color = "#1a73e8"
 
-                    # Sparkline Chart
+                    # Sparkline Chart sicher
                     spark_data = get_sparkline_data(row['Ticker'])
                     spark_data = spark_data.fillna(0).astype(float)
-                    spark_sum = spark_data.sum()  # Float, keine Series
+                    spark_sum = float(spark_data.sum())  # <-- float, keine Series
 
                     if len(spark_data) > 0 and spark_sum > 0:
                         spark_df = spark_data.reset_index()
