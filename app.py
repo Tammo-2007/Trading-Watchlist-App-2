@@ -44,8 +44,37 @@ def set_portfolio(df):
 
 portfolio = get_portfolio()
 
-# Tabs
-tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie/ETF hinzufügen", "📈 Charts & Sparplan"])
+# --- Aktie/ETF hinzufügen direkt in Sidebar ---
+st.sidebar.subheader("➕ Aktie/ETF hinzufügen")
+ticker_input = st.sidebar.text_input("Ticker (z.B. RHM.DE)").upper()
+price_input = st.sidebar.number_input("Kaufpreis (€)", min_value=0.01, step=0.01, format="%.2f")
+stk_input = st.sidebar.number_input("Stückzahl", min_value=1, step=1)
+stop_loss_input = st.sidebar.number_input("Stop-Loss €", min_value=0.0, step=0.01, format="%.2f")
+take_profit_input = st.sidebar.number_input("Take-Profit €", min_value=0.0, step=0.01, format="%.2f")
+status_input = st.sidebar.selectbox("Status", ["Besitzt","Beobachtung"])
+fee = st.sidebar.number_input("Gebühr pro Aktie (€)", min_value=0.0, step=0.1, value=1.0)
+
+if st.sidebar.button("Hinzufügen"):
+    if ticker_input:
+        new_row = pd.DataFrame([{
+            "ID": str(uuid.uuid4()),
+            "Ticker": ticker_input,
+            "Kaufpreis": price_input,
+            "Stückzahl": stk_input,
+            "Stop-Loss": stop_loss_input,
+            "Take-Profit": take_profit_input,
+            "Status": status_input,
+            "Gebühr": fee
+        }])
+        portfolio = pd.concat([portfolio, new_row], ignore_index=True)
+        set_portfolio(portfolio)
+        st.success(f"Aktie/ETF {ticker_input} hinzugefügt!")
+        st.experimental_rerun()
+    else:
+        st.warning("Bitte Ticker eingeben.")
+
+# --- Hauptbereich: Tabs für Portfolio und Charts ---
+tab1, tab2 = st.tabs(["📋 Portfolio", "📈 Charts & Sparplan"])
 
 # --- 1️⃣ Portfolio Tab ---
 with tab1:
@@ -87,16 +116,10 @@ with tab1:
         portfolio["Stop-Loss-Empfehlung"] = portfolio.apply(stop_loss_volatility, axis=1)
 
         # Grid-Cards anzeigen
-        cols = st.columns(3)  # 3 Cards pro Reihe
+        cols = st.columns(3)
         for i, (_, row) in enumerate(portfolio.iterrows()):
             col = cols[i % 3]
-            if row["Gewinn/Verlust"] > 0:
-                color = "🟢"
-            elif row["Gewinn/Verlust"] == 0:
-                color = "🟡"
-            else:
-                color = "🔴"
-
+            color = "🟢" if row["Gewinn/Verlust"] >= 0 else "🔴"
             col.markdown(f"""
             <div style="
                 border:1px solid #ccc;
@@ -117,39 +140,8 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
 
-# --- 2️⃣ Aktie/ETF hinzufügen Tab ---
+# --- 2️⃣ Charts Tab ---
 with tab2:
-    st.subheader("Neue Aktie/ETF hinzufügen")
-    cols = st.columns([2,1,1,1,1,1])
-    ticker_input = cols[0].text_input("Ticker (z.B. RHM.DE)").upper()
-    price_input = cols[1].number_input("Kaufpreis (€)", min_value=0.01, step=0.01, format="%.2f")
-    stk_input = cols[2].number_input("Stückzahl", min_value=1, step=1)
-    stop_loss_input = cols[3].number_input("Stop-Loss €", min_value=0.0, step=0.01, format="%.2f")
-    take_profit_input = cols[4].number_input("Take-Profit €", min_value=0.0, step=0.01, format="%.2f")
-    status_input = cols[5].selectbox("Status", ["Besitzt","Beobachtung"])
-    fee = st.number_input("Gebühr pro Aktie (€)", min_value=0.0, step=0.1, value=1.0)
-
-    if st.button("Hinzufügen"):
-        if ticker_input:
-            new_row = pd.DataFrame([{
-                "ID": str(uuid.uuid4()),
-                "Ticker": ticker_input,
-                "Kaufpreis": price_input,
-                "Stückzahl": stk_input,
-                "Stop-Loss": stop_loss_input,
-                "Take-Profit": take_profit_input,
-                "Status": status_input,
-                "Gebühr": fee
-            }])
-            portfolio = pd.concat([portfolio, new_row], ignore_index=True)
-            set_portfolio(portfolio)
-            st.success(f"Aktie/ETF {ticker_input} hinzugefügt!")
-            st.experimental_rerun()
-        else:
-            st.warning("Bitte Ticker eingeben.")
-
-# --- 3️⃣ Charts & Sparplan Tab ---
-with tab3:
     st.subheader("Charts & Sparplan")
     selected_ticker = st.selectbox("Ticker wählen", [""] + portfolio["Ticker"].unique().tolist())
     timeframe = st.selectbox("Zeitraum", ["1d","1wk","1mo","1y"])
