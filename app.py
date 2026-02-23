@@ -4,18 +4,16 @@ import yfinance as yf
 import altair as alt
 
 st.set_page_config(page_title="Kompaktes Trading Dashboard Pro", layout="wide")
-
 st.title("📊 Kompaktes Trading Dashboard Pro")
 
-# --- Session State initialisieren ---
-if "portfolio" not in st.session_state:
+# --- Session State korrekt initialisieren ---
+if "portfolio" not in st.session_state or not isinstance(st.session_state.portfolio, pd.DataFrame):
     st.session_state.portfolio = pd.DataFrame(columns=[
         "Ticker", "Kaufpreis", "Stückzahl", "Status", "Gebühr"
     ])
 
-# --- Kompakte Signaleinstellungen & Aktie hinzufügen ---
+# --- Signaleinstellungen & Aktie hinzufügen ---
 st.subheader("🔧 Signaleinstellungen & Aktie hinzufügen")
-
 cols = st.columns([2, 2, 2, 1])
 ticker_input = cols[0].text_input("Ticker (z.B. RHM.DE)")
 purchase_price = cols[1].number_input("Kaufpreis (€)", min_value=0.01, step=0.01)
@@ -29,60 +27,58 @@ if st.button("Aktie hinzufügen"):
             "Kaufpreis": purchase_price,
             "Stückzahl": stk,
             "Status": status,
-            "Gebühr": 1.00  # fixe Kaufgebühr
+            "Gebühr": 1.00  # Kaufgebühr
         }])
-        st.session_state.portfolio = pd.concat([st.session_state.portfolio, new_row], ignore_index=True)
+        st.session_state.portfolio = pd.concat(
+            [st.session_state.portfolio, new_row], ignore_index=True
+        )
         st.success(f"Aktie {ticker_input.upper()} hinzugefügt!")
         st.experimental_rerun()
 
 # --- Portfolio anzeigen ---
 st.subheader("📋 Portfolio")
+portfolio = st.session_state.portfolio
 
-if not st.session_state.portfolio.empty:
-    portfolio = st.session_state.portfolio.copy()
-    
-    # Aktuelle Kurse abrufen
+if not portfolio.empty:
+    # Aktueller Preis und Gewinn/Verlust berechnen
     current_prices = []
-    positions = []
+    pos_values = []
     profits = []
     signals = []
-    
+
     for idx, row in portfolio.iterrows():
         try:
-            df = yf.download(row["Ticker"], period="1d", interval="1d", progress=False)
-            if not df.empty:
-                current_price = df["Close"].iloc[-1]
-            else:
-                current_price = 0
+            df_price = yf.download(row["Ticker"], period="1d", interval="1d", progress=False)
+            current_price = df_price["Close"].iloc[-1]
         except:
-            current_price = 0
+            current_price = 0.0
         current_prices.append(current_price)
-        
+
         pos_value = current_price * row["Stückzahl"] - row["Gebühr"]
-        positions.append(pos_value)
-        
-        profit = pos_value - row["Kaufpreis"] * row["Stückzahl"] - row["Gebühr"]
+        pos_values.append(pos_value)
+
+        profit = pos_value - (row["Kaufpreis"] * row["Stückzahl"] + row["Gebühr"])
         profits.append(profit)
-        
-        # Einfaches Signal: Gewinn positiv -> Halten, sonst SELL
-        if profit >= 0:
-            signals.append("Halten")
-        else:
-            signals.append("SELL")
-    
-    portfolio["Aktueller Preis"] = current_prices
-    portfolio["Positionswert"] = positions
-    portfolio["Gewinn/Verlust"] = profits
-    portfolio["Signal"] = signals
-    
-    st.dataframe(portfolio[["Ticker", "Aktueller Preis", "Positionswert", "Gewinn/Verlust", "Signal", "Status"]])
+
+        signals.append("Halten" if profit >= 0 else "SELL")
+
+    portfolio_display = portfolio.copy()
+    portfolio_display["Aktueller Preis"] = current_prices
+    portfolio_display["Positionswert"] = pos_values
+    portfolio_display["Gewinn/Verlust"] = profits
+    portfolio_display["Signal"] = signals
+
+    st.dataframe(portfolio_display[[
+        "Ticker", "Kaufpreis", "Stückzahl", "Gebühr", "Aktueller Preis",
+        "Positionswert", "Gewinn/Verlust", "Signal", "Status"
+    ]])
 else:
     st.info("Portfolio ist leer. Füge Aktien hinzu!")
 
 # --- Kursverlauf (Altair Chart) ---
 st.subheader("📈 Kursverlauf")
+selected_ticker = st.selectbox("Wähle eine Aktie", [""] + list(portfolio["Ticker"]))
 
-selected_ticker = st.selectbox("Wähle eine Aktie", [""] + list(st.session_state.portfolio["Ticker"]))
 if selected_ticker:
     try:
         df_chart = yf.download(selected_ticker, period="6mo", interval="1d", progress=False)
