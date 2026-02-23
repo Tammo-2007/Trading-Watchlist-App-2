@@ -84,7 +84,10 @@ with tab1:
 
                     # Sparkline Chart
                     spark_data = get_sparkline_data(row['Ticker'])
-                    if len(spark_data) > 0 and spark_data.sum() > 0:
+                    spark_data = spark_data.fillna(0).astype(float)
+                    spark_sum = spark_data.sum()  # Float, keine Series
+
+                    if len(spark_data) > 0 and spark_sum > 0:
                         spark_df = spark_data.reset_index()
                         spark_df.columns = ["index","Close"]
                         spark_chart = alt.Chart(spark_df).mark_line(color=spark_color, strokeWidth=2).encode(
