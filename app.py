@@ -37,6 +37,9 @@ new_status = col_s.selectbox("Status", ["Beobachtung","Besitzt"], help="Besitzt:
 
 if col_b.button("Hinzufügen"):
     t = new_ticker.strip().upper()
+    # --- Automatisch .DE ergänzen falls keine Börsenendung ---
+    if "." not in t:
+        t += ".DE"
     n = new_name.strip() if new_name else t
     if t and not any(a["Ticker"]==t for a in st.session_state.aktien_liste):
         st.session_state.aktien_liste.append({"Ticker": t, "Name": n, "Status": new_status})
@@ -62,7 +65,7 @@ if st.session_state.aktien_liste:
     ticker_options = [a["Ticker"] for a in st.session_state.aktien_liste]
     selected_ticker = st.selectbox("Wähle eine Aktie", ticker_options)
 
-    # --- Kursdaten ---
+    # --- Kursdaten abrufen ---
     df = yf.Ticker(selected_ticker).history(period="6mo")
     if not df.empty:
         df["SMA20"] = ta.trend.SMAIndicator(df["Close"], sma20_period).sma_indicator()
