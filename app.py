@@ -7,7 +7,7 @@ import altair as alt
 st.set_page_config(page_title="Trading Dashboard Profi", layout="wide")
 st.title("📊 Profi Trading Dashboard mit Portfolio-Status")
 
-# --- Session State initialisieren ---
+# --- Session State ---
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = []
 
@@ -108,7 +108,7 @@ def forecast_trend(df):
     else:
         return "➡️ Seitwärts"
 
-# --- Sidebar: Aktien verwalten + Regler ---
+# --- Sidebar ---
 st.sidebar.header("Aktien verwalten")
 new_ticker = st.sidebar.text_input("Ticker (z.B. RHM oder CSG.AS)")
 new_name = st.sidebar.text_input("Name (optional)")
@@ -124,15 +124,11 @@ if st.sidebar.button("Aktie hinzufügen"):
         n = new_name if new_name else (get_company_name(t) if t else "Unbekannt")
         exists = any(a["Ticker"]==t for a in st.session_state.aktien_liste)
         if not exists:
-            st.session_state.aktien_liste.append({
-                "Ticker": t,
-                "Name": n,
-                "Status": new_status
-            })
+            st.session_state.aktien_liste.append({"Ticker": t, "Name": n, "Status": new_status})
         else:
             st.sidebar.info("Ticker bereits in der Liste")
 
-# --- Portfolio-Übersicht ---
+# --- Portfolio ---
 st.header("📋 Portfolio-Übersicht")
 to_delete = []
 for i, a in enumerate(st.session_state.aktien_liste):
@@ -157,7 +153,7 @@ if to_delete:
         st.session_state.aktien_liste.pop(i)
     st.experimental_rerun()
 
-# --- Interaktive Analyse ---
+# --- Interaktive Analyse mit Tabs ---
 if st.session_state.aktien_liste:
     st.header("📊 Interaktive Aktien-Analyse")
     ticker_options = [a["Ticker"] if a["Ticker"] else a["Name"] for a in st.session_state.aktien_liste]
@@ -169,7 +165,6 @@ if st.session_state.aktien_liste:
         format_func=lambda x: display_labels[ticker_options.index(x)]
     )
 
-    # Historische Daten + Signale
     df_selected = load_data(selected_ticker, interval=interval, period=period)
     current_price = load_today_price(selected_ticker)
     if current_price:
@@ -180,48 +175,55 @@ if st.session_state.aktien_liste:
         df_reset = df_selected.reset_index()
         tendenz = forecast_trend(df_selected)
 
-        # Historische Charts
-        st.subheader(f"📈 Historische Charts + Signale für {selected_ticker}")
-        chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T", y="Close:Q")
-        chart += alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T", y="SMA20:Q")
-        chart += alt.Chart(df_reset).mark_line(color="purple").encode(x="Date:T", y="SMA50:Q")
-        chart += alt.Chart(df_reset).mark_circle(size=100).encode(
-            x="Date:T",
-            y="Close:Q",
-            color=alt.Color("Advanced_Signal:N"),
-            tooltip=["Date:T","Close:Q","Advanced_Signal:N"]
-        )
-        st.altair_chart(chart.interactive(), use_container_width=True)
+        # --- Tabs ---
+        tab1, tab2, tab3, tab4 = st.tabs(["📈 Historische Charts", "📉 Intraday-Kurs", "📰 News", "📊 Advanced Signal & Trend"])
 
-        # Advanced Signal & Trend
-        st.subheader("📊 Advanced Signal & Trend")
-        st.write("Trendprognose:", tendenz)
-        st.dataframe(df_selected[["Close","SMA20","SMA50","RSI","MACD","MACD_signal","Advanced_Signal"]].tail(10))
-
-        # News
-        st.subheader("📰 Aktuelle Nachrichten")
-        news = get_news(selected_ticker)
-        if news:
-            for article in news[:5]:
-                with st.expander(article.get('title', 'Keine Überschrift')):
-                    st.write(article.get('publisher', 'Unbekannt'))
-                    st.write(article.get('link', ''))
-        else:
-            st.info("Keine aktuellen News verfügbar.")
-
-        # --- Intraday-Chart ---
-        intraday_df = yf.Ticker(selected_ticker).history(period="1d", interval="5m")
-        if not intraday_df.empty:
-            st.subheader("📉 Intraday-Kursverlauf heute")
-            intraday_df = intraday_df.reset_index()
-            intraday_chart = alt.Chart(intraday_df).mark_line(color="green").encode(
-                x="Datetime:T",
+        # Tab 1: Historische Charts
+        with tab1:
+            st.subheader(f"Historische Charts + Signale für {selected_ticker}")
+            chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T", y="Close:Q")
+            chart += alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T", y="SMA20:Q")
+            chart += alt.Chart(df_reset).mark_line(color="purple").encode(x="Date:T", y="SMA50:Q")
+            chart += alt.Chart(df_reset).mark_circle(size=100).encode(
+                x="Date:T",
                 y="Close:Q",
-                tooltip=["Datetime:T","Close:Q"]
+                color=alt.Color("Advanced_Signal:N"),
+                tooltip=["Date:T","Close:Q","Advanced_Signal:N"]
             )
-            st.altair_chart(intraday_chart.interactive(), use_container_width=True)
-        else:
-            st.info("Keine Intraday-Daten für heute verfügbar.")
+            st.altair_chart(chart.interactive(), use_container_width=True)
+
+        # Tab 2: Intraday-Kurs
+        with tab2:
+            intraday_df = yf.Ticker(selected_ticker).history(period="1d", interval="5m")
+            if not intraday_df.empty:
+                st.subheader("Intraday-Kursverlauf heute")
+                intraday_df = intraday_df.reset_index()
+                intraday_chart = alt.Chart(intraday_df).mark_line(color="green").encode(
+                    x="Datetime:T",
+                    y="Close:Q",
+                    tooltip=["Datetime:T","Close:Q"]
+                )
+                st.altair_chart(intraday_chart.interactive(), use_container_width=True)
+            else:
+                st.info("Keine Intraday-Daten für heute verfügbar.")
+
+        # Tab 3: News
+        with tab3:
+            st.subheader("Aktuelle Nachrichten")
+            news = get_news(selected_ticker)
+            if news:
+                for article in news[:5]:
+                    with st.expander(article.get('title', 'Keine Überschrift')):
+                        st.write(article.get('publisher', 'Unbekannt'))
+                        st.write(article.get('link', ''))
+            else:
+                st.info("Keine aktuellen News verfügbar.")
+
+        # Tab 4: Advanced Signal & Trend
+        with tab4:
+            st.subheader("Advanced Signal & Trend")
+            st.write("Trendprognose:", tendenz)
+            st.dataframe(df_selected[["Close","SMA20","SMA50","RSI","MACD","MACD_signal","Advanced_Signal"]].tail(10))
 
     else:
         st.warning(f"Für diese Aktie sind keine historischen Kursdaten verfügbar. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
