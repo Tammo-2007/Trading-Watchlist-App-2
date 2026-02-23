@@ -16,7 +16,7 @@ except ImportError:
 # --- Portfolio-Datei ---
 PORTFOLIO_FILE = "portfolio.json"
 
-# --- Portfolio laden ---
+# --- Session State initialisieren ---
 if "aktien_liste" not in st.session_state:
     if os.path.exists(PORTFOLIO_FILE):
         with open(PORTFOLIO_FILE, "r") as f:
@@ -29,7 +29,7 @@ def save_portfolio():
     with open(PORTFOLIO_FILE,"w") as f:
         json.dump(st.session_state.aktien_liste, f)
 
-# --- App Header ---
+# --- Header ---
 st.header("📊 Kompaktes Trading Dashboard – Alles auf einen Blick")
 
 # --- Signal Einstellungen ---
@@ -47,18 +47,18 @@ with st.form("portfolio_form"):
     name_optional = st.text_input("Name (optional)")
     status = st.selectbox("Status", ["Besitzt", "Beobachtung"])
     add_button = st.form_submit_button("Hinzufügen")
-    
-    if add_button and ticker_or_name:
-        # Prüfen, ob bereits vorhanden
-        found = any(a["ticker"].upper() == ticker_or_name.upper() for a in st.session_state.aktien_liste)
-        if not found:
-            st.session_state.aktien_liste.append({
-                "ticker": ticker_or_name.upper(),
-                "name": name_optional,
-                "status": status
-            })
-            save_portfolio()
-        st.experimental_rerun()
+
+# --- Aktie hinzufügen ---
+if add_button and ticker_or_name:
+    found = any(a["ticker"].upper() == ticker_or_name.upper() for a in st.session_state.aktien_liste)
+    if not found:
+        st.session_state.aktien_liste.append({
+            "ticker": ticker_or_name.upper(),
+            "name": name_optional,
+            "status": status
+        })
+        save_portfolio()
+        st.success(f"Aktie {ticker_or_name.upper()} wurde hinzugefügt!")
 
 # --- Portfolio Übersicht ---
 st.subheader("📋 Portfolio")
@@ -76,7 +76,7 @@ if st.session_state.aktien_liste:
 else:
     st.info("Keine Aktien im Portfolio. Bitte füge zuerst eine Aktie hinzu.")
 
-# --- Aktien auswählen (nur wenn vorhanden) ---
+# --- Aktien auswählen ---
 if st.session_state.aktien_liste:
     selected_ticker = st.selectbox(
         "Wähle eine Aktie",
@@ -117,7 +117,7 @@ if st.session_state.aktien_liste:
         ).properties(
             width=800,
             height=400
-        )  # kein .interactive() → kein Zoom/Scroll
+        )  # KEIN .interactive() → kein Zoom/Scroll
         st.altair_chart(chart, use_container_width=False)
 
     # --- RSS-News ---
