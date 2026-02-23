@@ -2,89 +2,122 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import altair as alt
+import feedparser
 
-# RSS-Feed
-try:
-    import feedparser
-    rss_available = True
-except ModuleNotFoundError:
-    rss_available = False
+st.set_page_config(page_title="Kompaktes Trading Dashboard Pro", layout="wide")
 
-st.set_page_config(page_title="Trading Dashboard Pro", layout="wide")
-
-# Initialisierung des Portfolios
+# ---------- SESSION STATE ----------
 if "portfolio" not in st.session_state:
     st.session_state.portfolio = []
 
-# --- Obere kompakte Eingabe ---
+# ---------- SIGNAL & AKTIE HINZUFÜGEN ----------
 st.subheader("🔧 Signaleinstellungen & Aktie hinzufügen")
-cols = st.columns([2,1,1,1,1])
-ticker_input = cols[0].text_input("Ticker (z.B. RHM.DE)")
-kaufpreis = cols[1].number_input("Kaufpreis (€)", min_value=0.01, step=0.01, format="%.2f")
-stk = cols[2].number_input("Stückzahl", min_value=1, step=1)
-status = cols[3].selectbox("Status", ["Besitzt", "Beobachtung"])
 
-if cols[4].button("Aktie hinzufügen"):
-    if ticker_input.strip() == "":
-        st.warning("Bitte einen Ticker eingeben!")
-    else:
-        st.session_state.portfolio.append({
-            "Ticker": ticker_input.upper(),
-            "Kaufpreis": kaufpreis,
-            "Stückzahl": stk,
-            "Status": status,
-            "Gebühr": 1.0
-        })
-        st.success(f"Aktie {ticker_input.upper()} hinzugefügt!")
-        st.experimental_rerun()
+cols = st.columns([2,1,1,1])
+with cols[0]:
+    ticker_input = st.text_input("Ticker (z.B. RHM.DE)", "").upper()
+with cols[1]:
+    buy_price = st.number_input("Kaufpreis (€)", min_value=0.0, step=0.01)
+with cols[2]:
+    quantity = st.number_input("Stückzahl", min_value=1, step=1)
+with cols[3]:
+    status = st.selectbox("Status", ["Besitzt", "Beobachtung"])
 
-# --- Portfolio anzeigen ---
+if st.button("Aktie hinzufügen") and ticker_input:
+    # Kaufgebühr 1€
+    st.session_state.portfolio.append({
+        "Ticker": ticker_input,
+        "Kaufpreis": buy_price,
+        "Stückzahl": quantity,
+        "Status": status,
+        "Gebühr": 1.0
+    })
+    st.success(f"Aktie {ticker_input} hinzugefügt!")
+    st.experimental_rerun()
+
+# ---------- PORTFOLIO TABELLE ----------
 st.subheader("📋 Portfolio")
 if st.session_state.portfolio:
     df_port = pd.DataFrame(st.session_state.portfolio)
-    # Aktueller Preis abrufen
-    def fetch_price(ticker):
+    
+    # Kursdaten abrufen
+    aktuelle_preise = []
+    gewinn_verlust = []
+    signal = []
+
+    for i, row in df_port.iterrows():
         try:
-            data = yf.Ticker(ticker).history(period="1d")
-            return float(data['Close'].iloc[-1])
+            data = yf.download(row["Ticker"], period="1d", interval="1d")
+            if not data.empty:
+                price = data["Close"].iloc[-1]
+                aktuelle_preise.append(price)
+                pos_value = price * row["Stückzahl"] - row["Gebühr"]
+                profit = pos_value - (row["Kaufpreis"]*row["Stückzahl"])
+                gewinn_verlust.append(f"{profit:.2f} € ({profit/row['Kaufpreis']/row['Stückzahl']*100:.2f}%)")
+                signal.append("Halten")  # hier kann man SMA/RSI/Signal Logik einbauen
+            else:
+                aktuelle_preise.append(None)
+                gewinn_verlust.append("Keine Daten")
+                signal.append("Keine Daten")
         except:
-            return None
+            aktuelle_preise.append(None)
+            gewinn_verlust.append("Fehler")
+            signal.append("Fehler")
+    
+    df_port["Aktueller Preis"] = aktuelle_preise
+    df_port["Gewinn/Verlust"] = gewinn_verlust
+    df_port["Signal"] = signal
 
-    df_port["Aktueller Preis"] = df_port["Ticker"].apply(fetch_price)
-    df_port["Positionswert"] = df_port["Aktueller Preis"] * df_port["Stückzahl"]
-    df_port["Gewinn/Verlust"] = df_port["Positionswert"] - (df_port["Kaufpreis"] * df_port["Stückzahl"] + df_port["Gebühr"])
-    df_port["Signal"] = df_port["Gewinn/Verlust"].apply(lambda x: "SELL" if x < 0 else "HOLD")
+    # Tabelle anzeigen
+    st.dataframe(df_port[["Ticker","Aktueller Preis","Stückzahl","Gewinn/Verlust","Signal","Status"]], use_container_width=True)
 
-    st.dataframe(df_port[["Ticker","Aktueller Preis","Positionswert","Gewinn/Verlust","Signal","Status"]], use_container_width=True)
+    # Aktionen: Verkaufen
+    for i, row in df_port.iterrows():
+        if st.button(f"Verkaufen {row['Ticker']}", key=f"sell_{i}"):
+            st.session_state.portfolio.pop(i)
+            st.success(f"{row['Ticker']} verkauft!")
+            st.experimental_rerun()
 else:
-    st.info("Keine Aktien im Portfolio")
+    st.info("Keine Aktien im Portfolio.")
 
-# --- Detailansicht für Charts ---
+# ---------- KURSVERLAUF CHART ----------
 st.subheader("📈 Kursverlauf")
-selected_ticker = st.selectbox("Wähle eine Aktie", [a["Ticker"] for a in st.session_state.portfolio] if st.session_state.portfolio else [])
+selected_ticker = st.selectbox("Wähle eine Aktie", [row["Ticker"] for row in st.session_state.portfolio] if st.session_state.portfolio else [])
 
 if selected_ticker:
-    data = yf.download(selected_ticker, period="6mo", interval="1d")
-    if not data.empty:
-        data["SMA20"] = data["Close"].rolling(20).mean()
-        data["SMA50"] = data["Close"].rolling(50).mean()
-        chart = alt.Chart(data.reset_index()).mark_line().encode(
-            x='Date:T',
-            y='Close:Q',
-            tooltip=['Date:T', 'Close:Q']
-        )
-        chart += alt.Chart(data.reset_index()).mark_line(color='orange').encode(x='Date:T', y='SMA20:Q')
-        chart += alt.Chart(data.reset_index()).mark_line(color='green').encode(x='Date:T', y='SMA50:Q')
-        st.altair_chart(chart, use_container_width=True)
-    else:
-        st.warning(f"Für {selected_ticker} sind keine Kursdaten verfügbar.")
+    try:
+        df = yf.download(selected_ticker, period="6mo", interval="1d")
+        df["SMA20"] = df["Close"].rolling(20).mean()
+        df["SMA50"] = df["Close"].rolling(50).mean()
 
-# --- RSS-News ---
+        chart = alt.Chart(df.reset_index()).mark_line().encode(
+            x="Date",
+            y="Close",
+            tooltip=["Date", "Close", "SMA20", "SMA50"]
+        ).properties(width=800, height=300)  # fixierte Größe
+
+        st.altair_chart(chart, use_container_width=True)
+    except:
+        st.error(f"Für {selected_ticker} sind keine Kursdaten verfügbar.")
+
+# ---------- RSS-NEWS ----------
 st.subheader("📰 News")
-if rss_available:
-    feed_url = f"https://finance.yahoo.com/rss/headline?s={selected_ticker}" if selected_ticker else "https://finance.yahoo.com/rss/topstories"
-    feed = feedparser.parse(feed_url)
-    for entry in feed.entries[:5]:
-        st.markdown(f"[{entry.title}]({entry.link})")
-else:
-    st.info("RSS-News nicht verfügbar (installiere feedparser)")
+rss_sources = [
+    f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={selected_ticker}&region=US&lang=en",
+    f"https://www.finanzen.net/rss/{selected_ticker}.rss",
+]
+
+news_found = False
+for url in rss_sources:
+    try:
+        feed = feedparser.parse(url)
+        if feed.entries:
+            news_found = True
+            for entry in feed.entries[:5]:
+                st.markdown(f"[{entry.title}]({entry.link})")
+            break
+    except:
+        continue
+
+if not news_found:
+    st.info("RSS-News nicht verfügbar oder feedparser nicht installiert.")
