@@ -15,7 +15,7 @@ if "mandanten" not in st.session_state:
 if "active_mandant" not in st.session_state:
     st.session_state.active_mandant = None
 
-# --- Sidebar: Mandanten & Aktien ---
+# --- Sidebar: Mandanten & Aktie hinzufügen ---
 st.sidebar.markdown("<h3 style='color:white;'>👤 Mandantenverwaltung</h3>", unsafe_allow_html=True)
 new_mandant = st.sidebar.text_input("Neuen Mandanten anlegen")
 if st.sidebar.button("Mandant hinzufügen") and new_mandant:
@@ -34,16 +34,7 @@ if st.session_state.mandanten:
 else:
     st.sidebar.warning("Bitte erst einen Mandanten anlegen.")
 
-# --- Portfolio Funktionen ---
-def get_portfolio():
-    if st.session_state.active_mandant:
-        return st.session_state.mandanten[st.session_state.active_mandant]
-    return pd.DataFrame()
-def set_portfolio(df):
-    st.session_state.mandanten[st.session_state.active_mandant] = df
-portfolio = get_portfolio()
-
-# --- Aktien/ETF hinzufügen Sidebar ---
+# --- Aktie/ETF hinzufügen ---
 st.sidebar.markdown("<h3 style='color:white;'>➕ Aktie/ETF hinzufügen</h3>", unsafe_allow_html=True)
 ticker_input = st.sidebar.text_input("Ticker (z.B. RHM.DE)").upper()
 price_input = st.sidebar.number_input("Kaufpreis (€)", min_value=0.01, step=0.01, format="%.2f")
@@ -52,6 +43,15 @@ stop_loss_input = st.sidebar.number_input("Stop-Loss €", min_value=0.0, step=0
 take_profit_input = st.sidebar.number_input("Take-Profit €", min_value=0.0, step=0.01, format="%.2f")
 status_input = st.sidebar.selectbox("Status", ["Besitzt","Beobachtung"])
 fee_input = st.sidebar.number_input("Gebühr pro Order (€)", min_value=0.0, step=0.1, value=1.0)
+
+def get_portfolio():
+    if st.session_state.active_mandant:
+        return st.session_state.mandanten[st.session_state.active_mandant]
+    return pd.DataFrame()
+def set_portfolio(df):
+    st.session_state.mandanten[st.session_state.active_mandant] = df
+
+portfolio = get_portfolio()
 
 if st.sidebar.button("Hinzufügen"):
     if ticker_input:
@@ -65,11 +65,11 @@ if st.sidebar.button("Hinzufügen"):
     else:
         st.sidebar.warning("Bitte Ticker eingeben.")
 
-# --- Tabs ---
-tab1, tab2 = st.tabs(["📋 Portfolio & Charts", "📈 Sparplan / Analyse"])
+# --- Layout: Links Portfolio, rechts Chart ---
+left_col, right_col = st.columns([1,2])
 
-with tab1:
-    st.subheader("Dein Portfolio (TR-Style Cards + Chart)")
+with left_col:
+    st.subheader("Portfolio (TR-Style)")
     if portfolio.empty:
         st.info("Keine Aktien vorhanden.")
     else:
@@ -103,25 +103,27 @@ with tab1:
                 return row["Kaufpreis"]*0.95
         portfolio["Stop-Loss-Empfehlung"] = portfolio.apply(stop_loss_vol, axis=1)
 
-        # Portfolio-Cards TR-Style
-        for _, row in portfolio.iterrows():
-            color = "#4caf50" if row["Gewinn/Verlust"]>=0 else "#f44336"
-            st.markdown(f"""
-            <div style="background-color:#161b22; padding:15px; border-radius:10px; margin-bottom:10px;">
-            <b style='color:white'>{row['Ticker']}</b> <span style='color:{color}'>●</span><br>
-            Status: <span style='color:white'>{row['Status']}</span><br>
-            Aktueller Preis: <span style='color:white'>{row['Aktueller Preis'] if row['Aktueller Preis'] else '–'} €</span><br>
-            Positionswert: <span style='color:white'>{row['Positionswert']:.2f} €</span><br>
-            Gewinn/Verlust: <span style='color:{color}'>{row['Gewinn/Verlust']:.2f} €</span><br>
-            📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €<br>
-            ⚠️ Empfehlung: {row['Stop-Loss-Empfehlung']:.2f} €<br>
-            Gebühr: {row['Gebühr']} € (pro Order)
-            </div>
-            """, unsafe_allow_html=True)
+        # Scrollbar für Portfolio
+        with st.container():
+            for _, row in portfolio.iterrows():
+                color = "#4caf50" if row["Gewinn/Verlust"]>=0 else "#f44336"
+                st.markdown(f"""
+                <div style="background-color:#161b22; padding:15px; border-radius:10px; margin-bottom:10px;">
+                <b style='color:white'>{row['Ticker']}</b> <span style='color:{color}'>●</span><br>
+                Status: <span style='color:white'>{row['Status']}</span><br>
+                Aktueller Preis: <span style='color:white'>{row['Aktueller Preis'] if row['Aktueller Preis'] else '–'} €</span><br>
+                Positionswert: <span style='color:white'>{row['Positionswert']:.2f} €</span><br>
+                Gewinn/Verlust: <span style='color:{color}'>{row['Gewinn/Verlust']:.2f} €</span><br>
+                📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €<br>
+                ⚠️ Empfehlung: {row['Stop-Loss-Empfehlung']:.2f} €<br>
+                Gebühr: {row['Gebühr']} € (pro Order)
+                </div>
+                """, unsafe_allow_html=True)
 
-        # Chart neben Aktie TR-Style
-        st.subheader("Chart")
-        selected_ticker = st.selectbox("Ticker wählen für Chart", [""] + portfolio["Ticker"].tolist())
+with right_col:
+    st.subheader("Aktien-Chart")
+    if not portfolio.empty:
+        selected_ticker = st.selectbox("Ticker für Chart", [""] + portfolio["Ticker"].tolist())
         timeframe = st.selectbox("Zeitraum", ["1T","1W","1M","1J","MAX"])
         if selected_ticker:
             period_map = {"1T":"7d","1W":"6mo","1M":"2y","1J":"5y","MAX":"10y"}
@@ -136,5 +138,5 @@ with tab1:
                     base.mark_line(color="#1f77b4").encode(y="Close:Q", tooltip=["Date:T","Close:Q"]),
                     base.mark_line(color="#ff7f0e").encode(y="SMA20:Q", tooltip=["Date:T","SMA20:Q"]),
                     base.mark_line(color="#2ca02c").encode(y="SMA50:Q", tooltip=["Date:T","SMA50:Q"])
-                ).resolve_scale(y="shared").properties(height=400, width=800).configure_view(strokeOpacity=0)
+                ).resolve_scale(y="shared").properties(height=500).configure_view(strokeOpacity=0)
                 st.altair_chart(chart, use_container_width=True)
