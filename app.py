@@ -4,15 +4,15 @@ import pandas as pd
 
 st.title("📊 Kompaktes Trading Dashboard Pro")
 
-# --- Session State Initialisierung ---
-if "portfolio" not in st.session_state or st.session_state.portfolio is None:
+# --- Session State Initialisierung robust ---
+if "portfolio" not in st.session_state:
     st.session_state.portfolio = pd.DataFrame(columns=[
         "Ticker", "Kaufpreis", "Stückzahl", "Status", "Gebühr"
     ])
 
 # --- Kompakte Zeile: Signaleinstellungen & Aktie hinzufügen ---
 st.subheader("🔧 Signaleinstellungen & Aktie hinzufügen")
-cols = st.columns([2, 1, 1, 1])  # vier Spalten nebeneinander
+cols = st.columns([2, 1, 1, 1])
 
 ticker_input = cols[0].text_input("Ticker (z.B. RHM.DE)").upper()
 buy_price = cols[1].number_input("Kaufpreis (€)", min_value=0.01, step=0.01)
@@ -20,27 +20,31 @@ shares = cols[2].number_input("Stückzahl", min_value=1, step=1)
 status = cols[3].selectbox("Status", ["Besitzt", "Beobachtung"])
 
 if st.button("Aktie hinzufügen") and ticker_input:
-    fee = 1.0  # feste Kaufgebühr
-    st.session_state.portfolio = pd.concat([
-        st.session_state.portfolio,
-        pd.DataFrame([{
-            "Ticker": ticker_input,
-            "Kaufpreis": buy_price,
-            "Stückzahl": shares,
-            "Status": status,
-            "Gebühr": fee
-        }])
-    ], ignore_index=True)
+    fee = 1.0  # Kaufgebühr
+    new_row = pd.DataFrame([{
+        "Ticker": ticker_input,
+        "Kaufpreis": buy_price,
+        "Stückzahl": shares,
+        "Status": status,
+        "Gebühr": fee
+    }])
+    st.session_state.portfolio = pd.concat(
+        [st.session_state.portfolio, new_row], ignore_index=True
+    )
     st.success(f"Aktie {ticker_input} hinzugefügt!")
 
 # --- Portfolio Tabelle ---
 st.subheader("📋 Portfolio")
-if st.session_state.portfolio is None or st.session_state.portfolio.empty:
+
+# Hier sicherstellen, dass portfolio immer ein DataFrame ist
+portfolio_df = st.session_state.portfolio if isinstance(st.session_state.portfolio, pd.DataFrame) else pd.DataFrame()
+
+if portfolio_df.empty:
     st.info("Keine Aktien im Portfolio.")
 else:
-    df = st.session_state.portfolio.copy()
-    
-    # Aktueller Kurs
+    df = portfolio_df.copy()
+
+    # Aktueller Kurs abrufen
     def get_price(ticker):
         try:
             data = yf.download(ticker, period="1d", progress=False)
