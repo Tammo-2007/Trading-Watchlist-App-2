@@ -2,147 +2,156 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import uuid
-import altair as alt
+import numpy as np
 
 st.set_page_config(page_title="Trading Dashboard Pro", layout="wide")
-st.markdown("<h1 style='text-align: center;'>📊 Trading Dashboard Pro</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>📊 Trading Dashboard Pro (Mandanten-tauglich)</h1>", unsafe_allow_html=True)
 
-# --- Session State ---
-if "portfolio" not in st.session_state:
-    st.session_state.portfolio = pd.DataFrame(
-        columns=["ID","Ticker","Kaufpreis","Stückzahl","Stop-Loss","Take-Profit","Status","Gebühr"]
+# --- Session State für Mandanten & Portfolios ---
+if "mandanten" not in st.session_state:
+    st.session_state.mandanten = pd.DataFrame(
+        columns=["MandantID","Name"]
     )
 
-# --- Demo Data ---
-if st.session_state.portfolio.empty:
-    demo_data = [
-        {"ID": str(uuid.uuid4()), "Ticker": "RHM.DE", "Kaufpreis": 50, "Stückzahl": 10,
-         "Stop-Loss": 45, "Take-Profit": 60, "Status": "Besitzt", "Gebühr": 1.0},
-        {"ID": str(uuid.uuid4()), "Ticker": "SAP.DE", "Kaufpreis": 120, "Stückzahl": 5,
-         "Stop-Loss": 110, "Take-Profit": 140, "Status": "Beobachtung", "Gebühr": 1.0}
-    ]
-    st.session_state.portfolio = pd.DataFrame(demo_data)
-
-# --- Funktionen ---
-def get_latest_price(ticker):
-    try:
-        data = yf.download(ticker, period="5d", interval="1d", progress=False)
-        if "Close" in data and not data.empty:
-            return float(data["Close"].iloc[-1])
-        return 0.0
-    except:
-        return 0.0
-
-def create_mini_chart(ticker):
-    try:
-        data = yf.download(ticker, period="1mo", interval="1d", progress=False)
-        if "Close" in data and not data.empty:
-            df_plot = data.reset_index()[["Date", "Close"]]
-            chart = alt.Chart(df_plot).mark_line(color="#1a73e8").encode(
-                x=alt.X("Date:T"),
-                y=alt.Y("Close:Q")
-            ).properties(width=200, height=50)
-            return chart
-        return None
-    except:
-        return None
-
-# --- Tabs ---
-tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie hinzufügen", "📈 Kurs & Chart"])
-
-# ----------------- Portfolio Tab -----------------
-with tab1:
-    st.subheader("Dein Portfolio (Cards)")
-    df = st.session_state.portfolio.copy()
-    if not df.empty:
-        df["Aktueller Preis"] = df["Ticker"].apply(get_latest_price)
-
-        # Grid-Layout
-        cols = st.columns(3)  # 3 Cards pro Reihe
-        for idx, row in df.iterrows():
-            col = cols[idx % 3]  # Wechselt die Spalte
-            price = float(row['Aktueller Preis']) if pd.notnull(row['Aktueller Preis']) else 0.0
-            positionswert = row['Stückzahl']*price - row['Gebühr'] if price > 0 else 0
-            gewinn_verlust = positionswert - (row['Kaufpreis']*row['Stückzahl'] + row['Gebühr']) if price > 0 else 0
-            price_display = f"{price:.2f} €" if price > 0 else "Kein Kurs"
-            status_icon = "🟢" if row['Status']=="Besitzt" else "🟡"
-            pnl_color = "#0a7f0a" if gewinn_verlust > 0 else "#c40000" if gewinn_verlust < 0 else "#1a73e8"
-
-            with col:
-                st.markdown(
-                    f"""
-                    <div style="border-radius:12px; padding:12px; margin-bottom:12px;
-                                background-color:#f9f9f9; box-shadow: 1px 1px 6px rgba(0,0,0,0.15);
-                                color:#222; font-size:13px; min-height:220px;">
-                        <h4>{row['Ticker']} {status_icon}</h4>
-                        <p>Status: <b>{row['Status']}</b></p>
-                        <p>Aktueller Preis: <b>{price_display}</b></p>
-                        <p>Positionswert: <b>{positionswert:.2f} €</b></p>
-                        <p style="color:{pnl_color}; font-weight:bold;">Gewinn/Verlust: <b>{gewinn_verlust:.2f} €</b></p>
-                        <p>📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €</p>
-                    </div>
-                    """, unsafe_allow_html=True
-                )
-
-                mini_chart = create_mini_chart(row['Ticker'])
-                if mini_chart:
-                    st.altair_chart(mini_chart, use_container_width=False)
-
-                if st.button(f"Löschen: {row['Ticker']}", key=f"delete_{row['ID']}"):
-                    st.session_state.portfolio = df[df["ID"] != row["ID"]].reset_index(drop=True)
-
-# ----------------- Aktie hinzufügen Tab -----------------
-with tab2:
-    st.subheader("Neue Aktie hinzufügen")
-    cols = st.columns([2,1,1,1,1,1])
-    ticker_input = cols[0].text_input("Ticker (z.B. RHM.DE)").upper()
-    price_input = cols[1].number_input("Kaufpreis (€)", min_value=0.01, step=0.01, format="%.2f")
-    stk_input = cols[2].number_input("Stückzahl", min_value=1, step=1)
-    stop_loss_input = cols[3].number_input("Stop-Loss €", min_value=0.0, step=0.01, format="%.2f")
-    take_profit_input = cols[4].number_input("Take-Profit €", min_value=0.0, step=0.01, format="%.2f")
-    status_input = cols[5].selectbox("Status", ["Besitzt","Beobachtung"])
-    fee = st.number_input("Gebühr pro Aktie (€)", min_value=0.0, step=0.1, value=1.0)
-
-    if st.button("Hinzufügen"):
-        if ticker_input:
-            new_row = pd.DataFrame([{
-                "ID": str(uuid.uuid4()),
-                "Ticker": ticker_input,
-                "Kaufpreis": price_input,
-                "Stückzahl": stk_input,
-                "Stop-Loss": stop_loss_input,
-                "Take-Profit": take_profit_input,
-                "Status": status_input,
-                "Gebühr": fee
-            }])
-            st.session_state.portfolio = pd.concat([st.session_state.portfolio, new_row], ignore_index=True)
-
-# ----------------- Kurs & Chart Tab -----------------
-with tab3:
-    st.subheader("Kursverlauf & SMA")
-    selected_ticker = getattr(st.session_state, "selected_ticker", None)
-    tickers_list = list(st.session_state.portfolio["Ticker"].unique())
-    if selected_ticker not in tickers_list:
-        selected_ticker = None
-
-    selected_ticker = st.selectbox(
-        "Aktie wählen",
-        [""] + tickers_list,
-        index=0 if not selected_ticker else tickers_list.index(selected_ticker)+1
+if "portfolios" not in st.session_state:
+    st.session_state.portfolios = pd.DataFrame(
+        columns=[
+            "ID","MandantID","Topf","Ticker","Kaufpreis","Stückzahl",
+            "Stop-Loss","Take-Profit","Status","Gebühr"
+        ]
     )
 
-    if selected_ticker:
-        data_hist = yf.download(selected_ticker, period="1y", interval="1d", progress=False)
-        if not data_hist.empty:
-            data_hist["SMA20"] = data_hist["Close"].rolling(20).mean()
-            data_hist["SMA50"] = data_hist["Close"].rolling(50).mean()
-            df_chart = data_hist.reset_index()
-            base = alt.Chart(df_chart).encode(x="Date:T")
-            chart = alt.layer(
-                base.mark_line(color="blue").encode(y="Close:Q", tooltip=["Date:T","Close:Q"]),
-                base.mark_line(color="orange").encode(y="SMA20:Q", tooltip=["Date:T","SMA20:Q"]),
-                base.mark_line(color="green").encode(y="SMA50:Q", tooltip=["Date:T","SMA50:Q"])
-            ).resolve_scale(y="shared").properties(height=400)
-            st.altair_chart(chart, use_container_width=True)
+# --- Mandant hinzufügen ---
+st.sidebar.header("👤 Mandantenverwaltung")
+mandant_name = st.sidebar.text_input("Neuen Mandanten anlegen")
+if st.sidebar.button("Mandant hinzufügen") and mandant_name:
+    new_mandant = pd.DataFrame([{"MandantID": str(uuid.uuid4()), "Name": mandant_name}])
+    st.session_state.mandanten = pd.concat([st.session_state.mandanten, new_mandant], ignore_index=True)
+    st.sidebar.success(f"Mandant {mandant_name} hinzugefügt!")
+
+# --- Mandantenwahl ---
+mandant_options = st.session_state.mandanten["Name"].tolist()
+selected_mandant = st.selectbox("Mandant wählen", [""] + mandant_options)
+
+if selected_mandant:
+    mandant_id = st.session_state.mandanten.loc[
+        st.session_state.mandanten["Name"]==selected_mandant, "MandantID"
+    ].values[0]
+
+    # --- Tabs pro Mandant ---
+    tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie/ETF hinzufügen", "📈 Charts & Sparplan"])
+
+    # ================= Portfolio Tab =================
+    with tab1:
+        st.subheader(f"{selected_mandant} Portfolio")
+        df = st.session_state.portfolios[st.session_state.portfolios["MandantID"]==mandant_id].copy()
+
+        if df.empty:
+            st.info("Keine Aktien/ETFs im Portfolio.")
         else:
-            st.error("Chart konnte nicht geladen werden.")
+            # --- Preise abrufen ---
+            tickers = df["Ticker"].unique().tolist()
+            latest_prices = {}
+            if tickers:
+                try:
+                    data = yf.download(tickers, period="5d", interval="1d", progress=False)["Close"]
+                    if isinstance(data, pd.Series):
+                        latest_prices[tickers[0]] = data.iloc[-1]
+                    else:
+                        latest_prices = data.iloc[-1].to_dict()
+                except:
+                    latest_prices = {t:0.0 for t in tickers}
+
+            df["Aktueller Preis"] = df["Ticker"].map(lambda t: latest_prices.get(t,0.0))
+            df["Positionswert"] = df["Aktueller Preis"] * df["Stückzahl"] - df["Gebühr"]
+            df["Gewinn/Verlust"] = df["Positionswert"] - (df["Kaufpreis"]*df["Stückzahl"] + df["Gebühr"])
+
+            # --- Signale ---
+            def compute_signal(row):
+                if row["Aktueller Preis"] <= row["Stop-Loss"]:
+                    return "SELL"
+                elif row["Aktueller Preis"] >= row["Take-Profit"]:
+                    return "Take-Profit"
+                elif row["Gewinn/Verlust"] >= 0:
+                    return "Halten"
+                else:
+                    return "SELL"
+            df["Signal"] = df.apply(compute_signal, axis=1)
+
+            st.dataframe(df[[
+                "Ticker","Topf","Status","Aktueller Preis",
+                "Positionswert","Gewinn/Verlust","Signal",
+                "Stop-Loss","Take-Profit"
+            ]], height=300)
+
+            # --- Aktie löschen ---
+            delete_options = df[["ID","Ticker"]].apply(lambda x: f"{x['Ticker']} ({x['ID'][:6]})", axis=1).tolist()
+            delete_choice = st.selectbox("Wähle Aktie/ETF zum Löschen", [""] + delete_options)
+            if st.button("Löschen"):
+                if delete_choice:
+                    selected_id = delete_choice.split("(")[-1].replace(")","")
+                    st.session_state.portfolios = st.session_state.portfolios[df["ID"] != selected_id]
+                    st.success("Aktie/ETF gelöscht!")
+
+    # ================= Hinzufügen Tab =================
+    with tab2:
+        st.subheader("Neue Aktie/ETF hinzufügen")
+        cols = st.columns([2,1,1,1,1,1])
+        ticker_input = cols[0].text_input("Ticker (z.B. RHM.DE)").upper()
+        topf_input = st.selectbox("Topf wählen", ["Langfrist", "Mittelfrist"])
+        price_input = cols[1].number_input("Kaufpreis (€)", min_value=0.01, step=0.01, format="%.2f")
+        stk_input = cols[2].number_input("Stückzahl", min_value=1, step=1)
+        stop_loss_input = cols[3].number_input("Stop-Loss €", min_value=0.0, step=0.01, format="%.2f")
+        take_profit_input = cols[4].number_input("Take-Profit €", min_value=0.0, step=0.01, format="%.2f")
+        status_input = cols[5].selectbox("Status", ["Besitzt","Beobachtung"])
+        fee = st.number_input("Gebühr pro Aktie (€)", min_value=0.0, step=0.1, value=1.0)
+
+        if st.button("Hinzufügen"):
+            if ticker_input:
+                new_row = pd.DataFrame([{
+                    "ID": str(uuid.uuid4()),
+                    "MandantID": mandant_id,
+                    "Topf": topf_input,
+                    "Ticker": ticker_input,
+                    "Kaufpreis": price_input,
+                    "Stückzahl": stk_input,
+                    "Stop-Loss": stop_loss_input,
+                    "Take-Profit": take_profit_input,
+                    "Status": status_input,
+                    "Gebühr": fee
+                }])
+                st.session_state.portfolios = pd.concat([st.session_state.portfolios, new_row], ignore_index=True)
+                st.success(f"Aktie/ETF {ticker_input} hinzugefügt!")
+            else:
+                st.warning("Bitte Ticker eingeben.")
+
+    # ================= Charts & Sparplan Tab =================
+    with tab3:
+        st.subheader("Charts & Sparplan")
+        selected_ticker = st.selectbox("Ticker wählen", [""] + list(df["Ticker"].unique()))
+        if selected_ticker:
+            data_hist = yf.download(selected_ticker, period="2y", interval="1d", progress=False)
+            if not data_hist.empty:
+                data_hist["SMA20"] = data_hist["Close"].rolling(20).mean()
+                data_hist["SMA50"] = data_hist["Close"].rolling(50).mean()
+                df_chart = data_hist.reset_index()
+
+                st.line_chart(df_chart[["Close","SMA20","SMA50"]])
+
+            st.subheader("Sparplan Simulation")
+            monthly = st.number_input("Monatliche Rate (€)", 50, 5000, 250, key="monthly")
+            years = st.slider("Laufzeit (Jahre)", 1, 40, 20, key="years")
+            return_rate = st.number_input("Erwartete Rendite p.a. (%)", 0.0, 15.0, 7.0, key="return") / 100
+
+            def sparplan(monthly_rate, years, annual_return):
+                months = years*12
+                monthly_return = annual_return/12
+                fv = monthly_rate * (((1 + monthly_return)**months - 1)/monthly_return)
+                invested = monthly_rate*months
+                gain = fv - invested
+                return invested, fv, gain
+
+            invested, fv, gain = sparplan(monthly, years, return_rate)
+            st.metric("Investiert", f"{invested:,.0f} €")
+            st.metric("Endwert", f"{fv:,.0f} €")
+            st.metric("Gewinn", f"{gain:,.0f} €")
