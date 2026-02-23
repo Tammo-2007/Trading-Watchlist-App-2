@@ -73,27 +73,31 @@ if st.session_state.aktien_liste:
         st.metric(label=f"{selected_ticker} Preis", value=f"{current_price:.2f} €")
 
         # --- Advanced Signal ---
-        last = df.tail(1).iloc[0]
+        last = df.dropna().tail(1).iloc[0]
         score = 0
         score += 1 if last["SMA20"]>last["SMA50"] else -1
-        rsi = ta.momentum.RSIIndicator(df["Close"],14).rsi().iloc[-1]
-        macd = ta.trend.MACD(df["Close"]).macd().iloc[-1]
-        macd_signal = ta.trend.MACD(df["Close"]).macd_signal().iloc[-1]
+        rsi = ta.momentum.RSIIndicator(df["Close"],14).rsi().dropna().iloc[-1]
+        macd = ta.trend.MACD(df["Close"]).macd().dropna().iloc[-1]
+        macd_signal = ta.trend.MACD(df["Close"]).macd_signal().dropna().iloc[-1]
         score += trend_weight_rsi*(1 if rsi<30 else (-1 if rsi>70 else 0))
         score += trend_weight_macd*(1 if macd>macd_signal else -1)
         signal = "Stark Kauf" if score>=2 else ("Stark Verkauf" if score<=-2 else "Halten")
         st.write(f"**Advanced Signal:** {signal}")
 
-        # --- Historischer Chart ---
+        # --- Historischer Chart (NaNs entfernt) ---
         df_reset = df.reset_index()
-        chart = alt.Chart(df_reset).transform_fold(
-            ["Close","SMA20","SMA50"], as_=["Serie","Wert"]
-        ).mark_line().encode(
-            x="Date",
-            y="Wert",
-            color="Serie"
-        )
-        st.altair_chart(chart, use_container_width=True)
+        df_plot = df_reset[["Date","Close","SMA20","SMA50"]].dropna()
+        if not df_plot.empty:
+            chart = alt.Chart(df_plot).transform_fold(
+                ["Close","SMA20","SMA50"], as_=["Serie","Wert"]
+            ).mark_line().encode(
+                x="Date",
+                y="Wert",
+                color="Serie"
+            )
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.warning("Nicht genügend Daten für Chartanzeige (NaNs entfernt)")
 
         # --- News ---
         if FEEDPARSER_AVAILABLE:
