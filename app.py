@@ -4,7 +4,6 @@ import yfinance as yf
 import ta
 import altair as alt
 import feedparser
-import requests
 
 st.set_page_config(page_title="Trading Dashboard Profi", layout="wide")
 st.title("📊 Profi Trading Dashboard mit Portfolio-Status")
@@ -12,6 +11,14 @@ st.title("📊 Profi Trading Dashboard mit Portfolio-Status")
 # --- Session State ---
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = []
+
+# --- Sidebar: Schieberegler & Einstellungen ---
+st.sidebar.header("Einstellungen")
+sma20_period = st.sidebar.slider("SMA20 Periode", 5, 50, 20)
+sma50_period = st.sidebar.slider("SMA50 Periode", 10, 200, 50)
+vol_factor = st.sidebar.slider("Volumen Faktor für Signal", 0.5, 3.0, 1.5)
+trend_weight_rsi = st.sidebar.slider("RSI Gewicht im Trend", 0, 2, 1)
+trend_weight_macd = st.sidebar.slider("MACD Gewicht im Trend", 0, 2, 1)
 
 # --- Hilfsfunktionen ---
 def normalize_ticker(ticker):
@@ -33,8 +40,8 @@ def load_data(ticker, interval="1d", period="6mo"):
         df = yf.Ticker(ticker).history(period=period, interval=interval)
         if df.empty or "Close" not in df:
             return pd.DataFrame()
-        df["SMA20"] = ta.trend.SMAIndicator(df["Close"], 20).sma_indicator()
-        df["SMA50"] = ta.trend.SMAIndicator(df["Close"], 50).sma_indicator()
+        df["SMA20"] = ta.trend.SMAIndicator(df["Close"], sma20_period).sma_indicator()
+        df["SMA50"] = ta.trend.SMAIndicator(df["Close"], sma50_period).sma_indicator()
         df["RSI"] = ta.momentum.RSIIndicator(df["Close"], 14).rsi()
         macd = ta.trend.MACD(df["Close"])
         df["MACD"] = macd.macd()
@@ -96,9 +103,9 @@ def advanced_signal(row):
         vol = float(row.get("Volume", 0))
         vol_signal = float(row.get("Volumen_Signal", 0))
         score += 1 if sma20 > sma50 else (-1 if sma20 < sma50 else 0)
-        score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
-        score += 1 if macd > macd_signal else (-1 if macd < macd_signal else 0)
-        score += 0.5 if vol > 1.5*vol_signal else 0
+        score += trend_weight_rsi * (1 if rsi < 30 else (-1 if rsi > 70 else 0))
+        score += trend_weight_macd * (1 if macd > macd_signal else (-1 if macd < macd_signal else 0))
+        score += 0.5 if vol > vol_factor*vol_signal else 0
         if score >= 2:
             return "Stark Kauf"
         elif score <= -2:
@@ -122,9 +129,9 @@ def forecast_trend(df):
         vol = float(row.get("Volume", 0))
         vol_signal = float(row.get("Volumen_Signal", 0))
         score += 1 if sma20 > sma50 else -1
-        score += 1 if rsi < 30 else (-1 if rsi > 70 else 0)
-        score += 1 if macd > macd_signal else -1
-        score += 0.5 if vol > 1.5*vol_signal else 0
+        score += trend_weight_rsi * (1 if rsi < 30 else (-1 if rsi > 70 else 0))
+        score += trend_weight_macd * (1 if macd > macd_signal else -1)
+        score += 0.5 if vol > vol_factor*vol_signal else 0
     avg_score = score / max(len(last5),1)
     if avg_score >= 1:
         return "📈 Wahrscheinlich steigend"
@@ -133,7 +140,7 @@ def forecast_trend(df):
     else:
         return "➡️ Seitwärts"
 
-# --- Sidebar ---
+# --- Sidebar: Aktienverwaltung ---
 st.sidebar.header("Aktien verwalten")
 new_ticker = st.sidebar.text_input("Ticker (z.B. RHM oder CSG.AS)")
 new_name = st.sidebar.text_input("Name (optional)")
@@ -153,7 +160,7 @@ if st.sidebar.button("Aktie hinzufügen"):
         else:
             st.sidebar.info("Ticker bereits in der Liste")
 
-# --- Portfolio ---
+# --- Portfolio Übersicht ---
 st.header("📋 Portfolio-Übersicht")
 to_delete = []
 for i, a in enumerate(st.session_state.aktien_liste):
@@ -178,7 +185,7 @@ if to_delete:
         st.session_state.aktien_liste.pop(i)
     st.experimental_rerun()
 
-# --- Interaktive Analyse mit Tabs ---
+# --- Interaktive Analyse ---
 if st.session_state.aktien_liste:
     st.header("📊 Interaktive Aktien-Analyse")
     ticker_options = [a["Ticker"] if a["Ticker"] else a["Name"] for a in st.session_state.aktien_liste]
@@ -265,7 +272,6 @@ if st.session_state.aktien_liste:
             st.subheader("Advanced Signal & Trend")
             st.write("Trendprognose:", tendenz)
             st.dataframe(df_selected[["Close","SMA20","SMA50","RSI","MACD","MACD_signal","Advanced_Signal"]].tail(10))
-
     else:
         st.warning(f"Für diese Aktie sind keine historischen Kursdaten verfügbar. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
 else:
