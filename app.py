@@ -10,7 +10,7 @@ st.markdown("<h1 style='text-align: center;'>📊 Trading Dashboard Pro</h1>", u
 
 # --- Mandantenverwaltung ---
 if "mandanten" not in st.session_state:
-    st.session_state.mandanten = {}  # dict: mandantenname -> portfolio DataFrame
+    st.session_state.mandanten = {}
 if "active_mandant" not in st.session_state:
     st.session_state.active_mandant = None
 
@@ -26,14 +26,14 @@ if st.sidebar.button("Mandant hinzufügen") and new_mandant:
     else:
         st.warning("Mandant existiert bereits!")
 
-# --- Mandant wählen ---
+# Mandant wählen
 if st.session_state.mandanten:
     mandant_list = list(st.session_state.mandanten.keys())
     st.session_state.active_mandant = st.sidebar.selectbox("Mandant wählen", mandant_list, index=0)
 else:
     st.warning("Bitte erst einen Mandanten anlegen.")
 
-# --- Portfolio für aktiven Mandanten ---
+# Portfolio Funktionen
 def get_portfolio():
     if st.session_state.active_mandant:
         return st.session_state.mandanten[st.session_state.active_mandant]
@@ -44,12 +44,12 @@ def set_portfolio(df):
 
 portfolio = get_portfolio()
 
-# --- Tabs ---
+# Tabs
 tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie/ETF hinzufügen", "📈 Charts & Sparplan"])
 
 # --- 1️⃣ Portfolio Tab ---
 with tab1:
-    st.subheader("Dein Portfolio (Cards)")
+    st.subheader("Dein Portfolio")
     if portfolio.empty:
         st.info("Keine Aktien vorhanden.")
     else:
@@ -72,7 +72,7 @@ with tab1:
             return pd.Series([positionswert, gewinn])
         portfolio[["Positionswert","Gewinn/Verlust"]] = portfolio.apply(compute_values, axis=1)
 
-        # Stop-Loss Empfehlung basierend auf Volatilität
+        # Stop-Loss Empfehlung
         def stop_loss_volatility(row):
             try:
                 data = yf.Ticker(row["Ticker"]).history(period="1mo")
@@ -86,8 +86,10 @@ with tab1:
                 return row["Kaufpreis"] * 0.95
         portfolio["Stop-Loss-Empfehlung"] = portfolio.apply(stop_loss_volatility, axis=1)
 
-        # Anzeige als Cards (flackerfrei, dunkler Hintergrund, schwarze Schrift)
-        for _, row in portfolio.iterrows():
+        # Grid-Cards anzeigen
+        cols = st.columns(3)  # 3 Cards pro Reihe
+        for i, (_, row) in enumerate(portfolio.iterrows()):
+            col = cols[i % 3]
             if row["Gewinn/Verlust"] > 0:
                 color = "🟢"
             elif row["Gewinn/Verlust"] == 0:
@@ -95,35 +97,25 @@ with tab1:
             else:
                 color = "🔴"
 
-            st.markdown(f"""
+            col.markdown(f"""
             <div style="
                 border:1px solid #ccc;
                 padding:15px;
                 border-radius:10px;
                 margin-bottom:10px;
-                background-color:#e0e0e0;
+                background-color:#f0f0f0;
                 color:#000000;
                 font-weight:bold;
-                ">
-                {row['Ticker']} {color}<br>
-                Status: {row['Status']}<br>
-                Aktueller Preis: {row['Aktueller Preis'] if row['Aktueller Preis'] else 'Kein Kurs'} €<br>
-                Positionswert: {row['Positionswert']:.2f} €<br>
-                Gewinn/Verlust: {row['Gewinn/Verlust']:.2f} €<br>
-                📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €<br>
-                ⚠️ Stop-Loss Empfehlung: {row['Stop-Loss-Empfehlung']:.2f} €
+            ">
+            <span style='font-size:20px'>{row['Ticker']} {color}</span><br>
+            Status: {row['Status']}<br>
+            Aktueller Preis: {row['Aktueller Preis'] if row['Aktueller Preis'] else 'Kein Kurs'} €<br>
+            Positionswert: {row['Positionswert']:.2f} €<br>
+            Gewinn/Verlust: {row['Gewinn/Verlust']:.2f} €<br>
+            📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €<br>
+            ⚠️ Stop-Loss Empfehlung: {row['Stop-Loss-Empfehlung']:.2f} €
             </div>
             """, unsafe_allow_html=True)
-
-        # Aktien löschen
-        delete_options = portfolio[["ID","Ticker"]].apply(lambda x: f"{x['Ticker']} ({x['ID'][:6]})", axis=1).tolist()
-        delete_choice = st.selectbox("Wähle Aktie zum Löschen", [""] + delete_options)
-        if st.button("Löschen"):
-            if delete_choice:
-                selected_id = delete_choice.split("(")[-1].replace(")","")
-                portfolio = portfolio[portfolio["ID"].str[:6] != selected_id]
-                set_portfolio(portfolio)
-                st.experimental_rerun()
 
 # --- 2️⃣ Aktie/ETF hinzufügen Tab ---
 with tab2:
