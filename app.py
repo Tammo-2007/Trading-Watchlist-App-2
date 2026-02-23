@@ -50,10 +50,18 @@ def load_today_price(ticker):
         df = yf.Ticker(ticker).history(period="1d", interval="1m")
         if df.empty:
             return None
-        last_row = df.iloc[-1]
-        return last_row["Close"]
+        return df["Close"].iloc[-1]
     except:
         return None
+
+@st.cache_data
+def get_news(ticker):
+    """News für die Aktie"""
+    try:
+        news_list = yf.Ticker(ticker).news
+        return news_list if news_list else []
+    except:
+        return []
 
 def advanced_signal(row):
     try:
@@ -134,7 +142,6 @@ for i, a in enumerate(st.session_state.aktien_liste):
     cols = st.columns([0.05,0.4,0.2,0.15,0.2])
     selected = cols[0].checkbox("", key=f"chk_{i}")
     status_color = "🟢" if a["Status"]=="Besitzt" else "🟡"
-    # Prüfen, ob aktuelle Daten verfügbar
     price = load_today_price(a["Ticker"])
     has_data = price is not None
     label_color = "red" if not has_data else "black"
@@ -186,7 +193,21 @@ if st.session_state.aktien_liste:
             tooltip=["Date:T","Close:Q","Advanced_Signal:N"]
         )
         st.altair_chart(chart.interactive(), use_container_width=True)
-        st.write("Trend:", tendenz)
+
+        st.subheader("📊 Advanced Signal & Trend")
+        st.write("Trendprognose:", tendenz)
+        st.dataframe(df_selected[["Close","SMA20","SMA50","RSI","MACD","MACD_signal","Advanced_Signal"]].tail(10))
+
+        st.subheader("📰 Aktuelle Nachrichten")
+        news = get_news(selected_ticker)
+        if news:
+            for article in news[:5]:
+                with st.expander(article.get('title', 'Keine Überschrift')):
+                    st.write(article.get('publisher', 'Unbekannt'))
+                    st.write(article.get('link', ''))
+        else:
+            st.info("Keine aktuellen News verfügbar.")
+
     else:
         st.warning(f"Für diese Aktie sind keine historischen Kursdaten verfügbar. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
 else:
