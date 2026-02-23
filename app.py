@@ -31,43 +31,23 @@ def get_company_name(ticker):
 @st.cache_data
 def load_data(ticker):
     try:
-        # --- Versuch 1: letzte 6 Monate ---
-        df = yf.download(ticker, period="6mo", interval="1d", progress=False)
-        if "Close" in df and not df["Close"].dropna().empty:
-            close_series = pd.to_numeric(df["Close"], errors='coerce').fillna(method='ffill').fillna(0)
-        else:
-            # --- Versuch 2: 1 Jahr ---
-            df = yf.download(ticker, period="1y", interval="1d", progress=False)
+        for period in ["6mo", "1y", "max"]:
+            df = yf.download(ticker, period=period, interval="1d", progress=False)
             if "Close" in df and not df["Close"].dropna().empty:
                 close_series = pd.to_numeric(df["Close"], errors='coerce').fillna(method='ffill').fillna(0)
-            else:
-                # --- Versuch 3: maximal verfügbar ---
-                df = yf.download(ticker, period="max", interval="1d", progress=False)
-                if "Close" in df and not df["Close"].dropna().empty:
-                    close_series = pd.to_numeric(df["Close"], errors='coerce').fillna(method='ffill').fillna(0)
-                else:
-                    return pd.DataFrame()  # wirklich keine Daten
-
-        # --- Technische Indikatoren ---
-        df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
-        df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
-        df["RSI"] = ta.momentum.RSIIndicator(close_series, 14).rsi()
-        macd = ta.trend.MACD(close_series)
-        df["MACD"] = macd.macd()
-        df["MACD_signal"] = macd.macd_signal()
-        df["Volume"] = pd.to_numeric(df.get("Volume", 0), errors='coerce').fillna(0)
-        df["Volumen_Signal"] = df["Volume"].rolling(20).mean().fillna(0)
-
-        # Sicherstellen, dass alle numerischen Spalten korrekt sind
-        for col in ["SMA20","SMA50","RSI","MACD","MACD_signal","Volume","Volumen_Signal"]:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-        return df
-
-    except Exception as e:
+                df["SMA20"] = ta.trend.SMAIndicator(close_series, 20).sma_indicator()
+                df["SMA50"] = ta.trend.SMAIndicator(close_series, 50).sma_indicator()
+                df["RSI"] = ta.momentum.RSIIndicator(close_series, 14).rsi()
+                macd = ta.trend.MACD(close_series)
+                df["MACD"] = macd.macd()
+                df["MACD_signal"] = macd.macd_signal()
+                df["Volume"] = pd.to_numeric(df.get("Volume", 0), errors='coerce').fillna(0)
+                df["Volumen_Signal"] = df["Volume"].rolling(20).mean().fillna(0)
+                return df
+        return pd.DataFrame()
+    except:
         return pd.DataFrame()
 
-# --- Signale & Trend ---
 def advanced_signal(row):
     try:
         sma20 = float(row.get("SMA20", 0))
@@ -87,6 +67,8 @@ def advanced_signal(row):
         return "Halten"
 
 def forecast_trend(df):
+    if df.empty:
+        return "Daten fehlen"
     last_df = df.tail(5)
     score = 0
     for _, row in last_df.iterrows():
@@ -121,32 +103,30 @@ if st.sidebar.button("Aktie hinzufügen"):
             "Status": new_status
         })
 
-# --- Portfolio-Übersicht ---
+# --- Portfolio-Übersicht interaktiv ---
 st.header("📋 Portfolio-Übersicht")
-portfolio_data = []
-
-for a in st.session_state.aktien_liste:
-    ticker, name, status = a["Ticker"], a["Name"], a["Status"]
-    trend = "Daten fehlen"
-    last_signal = "–"
-    df = load_data(ticker) if ticker else pd.DataFrame()
-    if not df.empty:
-        df["Advanced_Signal"] = df.apply(advanced_signal, axis=1)
-        trend = forecast_trend(df)
-        last_signal = df["Advanced_Signal"].iloc[-1]
-    portfolio_data.append({
-        "Ticker": ticker if ticker else name,
-        "Name": name,
-        "Status": status,
-        "Signal": last_signal,
-        "Trend": trend
-    })
-
-st.dataframe(pd.DataFrame(portfolio_data))
+to_delete = []
+for i, a in enumerate(st.session_state.aktien_liste):
+    cols = st.columns([0.05,0.4,0.2,0.15,0.2])
+    selected = cols[0].checkbox("", key=f"chk_{i}")
+    cols[1].write(f"{a['Name']} ({a['Ticker']})")
+    cols[2].write(a["Status"])
+    delete = cols[4].button("Löschen", key=f"del_{i}")
+    
+    # Kursdaten & Signale laden, wenn Ticker existiert
+    df = load_data(a["Ticker"]) if a["Ticker"] else pd.DataFrame()
+    signal = forecast_trend(df)
+    cols[3].write(signal)
+    
+    if delete:
+        to_delete.append(i)
+for i in reversed(to_delete):
+    st.session_state.aktien_liste.pop(i)
+    st.experimental_rerun()
 
 # --- Interaktive Analyse ---
-st.header("📊 Interaktive Aktien-Analyse")
 if st.session_state.aktien_liste:
+    st.header("📊 Interaktive Aktien-Analyse")
     ticker_options = [a["Ticker"] if a["Ticker"] else a["Name"] for a in st.session_state.aktien_liste]
     display_labels = [f"{a['Name']} ({a['Ticker']}) [{a['Status']}]" for a in st.session_state.aktien_liste]
 
@@ -156,7 +136,7 @@ if st.session_state.aktien_liste:
         format_func=lambda x: display_labels[ticker_options.index(x)]
     )
 
-    df_selected = load_data(selected_ticker)
+    df_selected = load_data(selected_ticker) if ticker_valid(selected_ticker) else pd.DataFrame()
     if not df_selected.empty:
         df_selected["Advanced_Signal"] = df_selected.apply(advanced_signal, axis=1)
         tendenz = forecast_trend(df_selected)
