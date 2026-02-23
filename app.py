@@ -43,22 +43,28 @@ MACD_weight = st.slider("MACD Gewicht", 0, 2, 1, help="Gewichtung MACD im Score"
 # --- Portfolio verwalten ---
 st.subheader("💼 Portfolio verwalten")
 with st.form("portfolio_form"):
-    ticker_or_name = st.text_input("Ticker oder Name", help="Trage Ticker z.B. RHM.DE oder den Namen ein")
+    ticker_or_name = st.text_input("Ticker oder Name", help="Trage Ticker z.B. RHM oder RHM.DE oder den Namen ein")
     name_optional = st.text_input("Name (optional)")
     status = st.selectbox("Status", ["Besitzt", "Beobachtung"])
     add_button = st.form_submit_button("Hinzufügen")
 
 # --- Aktie hinzufügen ---
 if add_button and ticker_or_name:
-    found = any(a["ticker"].upper() == ticker_or_name.upper() for a in st.session_state.aktien_liste)
+    ticker_clean = ticker_or_name.upper()
+    # Automatisches .DE für deutsche Ticker
+    if "." not in ticker_clean and len(ticker_clean) <= 5:
+        ticker_clean += ".DE"
+
+    # Prüfen, ob bereits vorhanden
+    found = any(a["ticker"].upper() == ticker_clean for a in st.session_state.aktien_liste)
     if not found:
         st.session_state.aktien_liste.append({
-            "ticker": ticker_or_name.upper(),
+            "ticker": ticker_clean,
             "name": name_optional,
             "status": status
         })
         save_portfolio()
-        st.success(f"Aktie {ticker_or_name.upper()} wurde hinzugefügt!")
+        st.success(f"Aktie {ticker_clean} wurde hinzugefügt!")
 
 # --- Portfolio Übersicht ---
 st.subheader("📋 Portfolio")
@@ -68,7 +74,6 @@ if st.session_state.aktien_liste:
         display_name = a["name"] if a["name"] else a["ticker"]
         col1.text(f"{display_name} ({a['ticker']})")
         col2.text("🟢 Besitzt" if a["status"]=="Besitzt" else "🟡 Beobachtung")
-        # Löschen
         if col3.button("❌", key=f"del_{i}"):
             st.session_state.aktien_liste.pop(i)
             save_portfolio()
