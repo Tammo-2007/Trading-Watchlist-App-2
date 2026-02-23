@@ -2,13 +2,13 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
+st.title("📊 Kompaktes Trading Dashboard Pro")
+
 # --- Session State Initialisierung ---
-if "portfolio" not in st.session_state:
+if "portfolio" not in st.session_state or st.session_state.portfolio is None:
     st.session_state.portfolio = pd.DataFrame(columns=[
         "Ticker", "Kaufpreis", "Stückzahl", "Status", "Gebühr"
     ])
-
-st.title("📊 Kompaktes Trading Dashboard Pro")
 
 # --- Kompakte Zeile: Signaleinstellungen & Aktie hinzufügen ---
 st.subheader("🔧 Signaleinstellungen & Aktie hinzufügen")
@@ -35,16 +35,19 @@ if st.button("Aktie hinzufügen") and ticker_input:
 
 # --- Portfolio Tabelle ---
 st.subheader("📋 Portfolio")
-if st.session_state.portfolio.empty:
+if st.session_state.portfolio is None or st.session_state.portfolio.empty:
     st.info("Keine Aktien im Portfolio.")
 else:
     df = st.session_state.portfolio.copy()
     
     # Aktueller Kurs
     def get_price(ticker):
-        data = yf.download(ticker, period="1d", progress=False)
-        if not data.empty:
-            return float(data["Close"].iloc[-1])
+        try:
+            data = yf.download(ticker, period="1d", progress=False)
+            if not data.empty:
+                return float(data["Close"].iloc[-1])
+        except:
+            return 0
         return 0
 
     df["Aktueller Preis"] = df["Ticker"].apply(get_price)
