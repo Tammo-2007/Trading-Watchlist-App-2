@@ -2,8 +2,8 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import uuid
-import numpy as np
-import altair as alt
+import matplotlib.pyplot as plt
+from io import BytesIO
 
 st.set_page_config(page_title="Trading Dashboard Pro", layout="wide")
 st.markdown("<h1 style='text-align: center;'>📊 Trading Dashboard Pro</h1>", unsafe_allow_html=True)
@@ -34,21 +34,22 @@ def get_latest_price(ticker):
     except:
         return 0.0
 
-# --- Sparkline ASCII ---
-def get_sparkline_ascii(ticker, points=10):
+# --- Mini-Chart PNG erstellen ---
+def create_mini_chart(ticker):
     try:
         data = yf.download(ticker, period="1mo", interval="1d", progress=False)
         if "Close" in data and not data.empty:
-            series = data["Close"].tail(points).fillna(0).astype(float)
-            min_v, max_v = series.min(), series.max()
-            if max_v - min_v == 0:
-                return "─"*points
-            normalized = ((series - min_v)/(max_v - min_v) * 7).round().astype(int)
-            bars = "▁▂▃▄▅▆▇█"
-            return "".join([bars[int(n)] for n in normalized])
-        return "─"*points
+            fig, ax = plt.subplots(figsize=(2.4, 0.5))
+            ax.plot(data["Close"], color="#1a73e8", linewidth=1)
+            ax.axis('off')
+            buf = BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+            plt.close(fig)
+            buf.seek(0)
+            return buf
+        return None
     except:
-        return "─"*points
+        return None
 
 # --- Tabs ---
 tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie hinzufügen", "📈 Kurs & Chart"])
@@ -64,34 +65,40 @@ with tab1:
             positionswert = row['Stückzahl']*price - row['Gebühr'] if price > 0 else 0
             gewinn_verlust = positionswert - (row['Kaufpreis']*row['Stückzahl'] + row['Gebühr']) if price > 0 else 0
             price_display = f"{price:.2f} €" if price > 0 else "Kein Kurs"
+
             status_icon = "🟢" if row['Status']=="Besitzt" else "🟡"
             pnl_color = "#0a7f0a" if gewinn_verlust > 0 else "#c40000" if gewinn_verlust < 0 else "#1a73e8"
-            spark_ascii = get_sparkline_ascii(row['Ticker'])
 
-            st.markdown(
-                f"""
-                <div style="border-radius:12px; padding:12px; margin-bottom:12px;
-                            background-color:#ffffff; box-shadow: 1px 1px 6px rgba(0,0,0,0.15);
-                            color:#222; font-size:13px; width:240px; height:180px; overflow:hidden;">
-                    <h4>{row['Ticker']} {status_icon}</h4>
-                    <p>Status: <b>{row['Status']}</b></p>
-                    <p>Aktueller Preis: <b>{price_display}</b></p>
-                    <p>Positionswert: <b>{positionswert:.2f} €</b></p>
-                    <p style="color:{pnl_color}; font-weight:bold;">Gewinn/Verlust: <b>{gewinn_verlust:.2f} €</b></p>
-                    <p>📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €</p>
-                    <p style="font-family: monospace; font-size:14px; color:#555;">{spark_ascii}</p>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            # Card Layout
+            with st.container():
+                st.markdown(
+                    f"""
+                    <div style="border-radius:12px; padding:12px; margin-bottom:12px;
+                                background-color:#ffffff; box-shadow: 1px 1px 6px rgba(0,0,0,0.15);
+                                color:#222; font-size:13px; width:260px; min-height:200px; overflow:hidden;">
+                        <h4>{row['Ticker']} {status_icon}</h4>
+                        <p>Status: <b>{row['Status']}</b></p>
+                        <p>Aktueller Preis: <b>{price_display}</b></p>
+                        <p>Positionswert: <b>{positionswert:.2f} €</b></p>
+                        <p style="color:{pnl_color}; font-weight:bold;">Gewinn/Verlust: <b>{gewinn_verlust:.2f} €</b></p>
+                        <p>📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-            # Chart-Button -> legt Ticker für Tab3 fest
-            if st.button(f"Chart anzeigen: {row['Ticker']}", key=f"chart_{row['ID']}"):
-                st.session_state.selected_ticker = row["Ticker"]
+                # Mini-Chart direkt darunter
+                mini_chart = create_mini_chart(row['Ticker'])
+                if mini_chart:
+                    st.image(mini_chart)
 
-            # Löschen-Button
-            if st.button(f"Löschen: {row['Ticker']}", key=f"delete_{row['ID']}"):
-                st.session_state.portfolio = df[df["ID"] != row["ID"]].reset_index(drop=True)
+                # Chart-Button
+                if st.button(f"Chart anzeigen: {row['Ticker']}", key=f"chart_{row['ID']}"):
+                    st.session_state.selected_ticker = row["Ticker"]
+
+                # Löschen-Button
+                if st.button(f"Löschen: {row['Ticker']}", key=f"delete_{row['ID']}"):
+                    st.session_state.portfolio = df[df["ID"] != row["ID"]].reset_index(drop=True)
 
 with tab2:
     st.subheader("Neue Aktie hinzufügen")
@@ -121,7 +128,11 @@ with tab2:
 with tab3:
     st.subheader("Kursverlauf & SMA")
     selected_ticker = getattr(st.session_state, "selected_ticker", None)
-    selected_ticker = st.selectbox("Aktie wählen", [""] + list(st.session_state.portfolio["Ticker"].unique()), index=0 if not selected_ticker else list(st.session_state.portfolio["Ticker"].unique()).index(selected_ticker)+1)
+    selected_ticker = st.selectbox(
+        "Aktie wählen",
+        [""] + list(st.session_state.portfolio["Ticker"].unique()),
+        index=0 if not selected_ticker else list(st.session_state.portfolio["Ticker"].unique()).index(selected_ticker)+1
+    )
     if selected_ticker:
         data_hist = yf.download(selected_ticker, period="1y", interval="1d", progress=False)
         if not data_hist.empty:
