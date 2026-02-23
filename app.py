@@ -4,7 +4,7 @@ import yfinance as yf
 import ta
 import altair as alt
 
-# Optional: News über RSS
+# Optional: RSS News
 try:
     import feedparser
     FEEDPARSER_AVAILABLE = True
@@ -18,7 +18,7 @@ st.title("📊 Kompaktes Trading Dashboard – Alles auf einen Blick")
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = []
 
-# --- Regler mit Infoblasen ---
+# --- Einstellungen für Signale ---
 st.subheader("🔧 Einstellungen für Signale")
 col1, col2, col3 = st.columns(3)
 sma20_period = col1.slider("SMA20 Periode", 5,50,20, help="Kurzfristiger gleitender Durchschnitt")
@@ -32,18 +32,19 @@ trend_weight_macd = col5.slider("MACD Gewicht",0,2,1, help="Gewichtung des MACD 
 # --- Portfolio Verwaltung ---
 st.subheader("💼 Portfolio verwalten")
 col_t, col_n, col_s, col_b = st.columns([2,3,2,1])
-new_ticker = col_t.text_input("Ticker", help="z.B. RHM oder CSG.AS")
-new_name = col_n.text_input("Name (optional)", help="Optionaler Firmenname")
-new_status = col_s.selectbox("Status", ["Beobachtung","Besitzt"], help="Besitzt: Aktie im Portfolio, Beobachtung: nur beobachten")
-
-# Hinzufügen Button
+new_input = col_t.text_input("Ticker oder Name", help="z.B. RHM oder Rheinmetall")
+new_name = col_n.text_input("Name (optional)")
+new_status = col_s.selectbox("Status", ["Beobachtung","Besitzt"])
 if col_b.button("Hinzufügen"):
-    t = new_ticker.strip().upper()
-    if "." not in t:
-        t += ".DE"
-    n = new_name.strip() if new_name else t
-    if t and not any(a["Ticker"]==t for a in st.session_state.aktien_liste):
-        st.session_state.aktien_liste.append({"Ticker": t, "Name": n, "Status": new_status})
+    # Automatisch Ticker auflösen
+    inp = new_input.strip()
+    if "." not in inp and len(inp)<5:  # kurzer Ticker, .DE ergänzen
+        ticker = inp.upper() + ".DE"
+    else:
+        ticker = inp.upper()
+    name = new_name.strip() if new_name else ticker
+    if ticker and not any(a["Ticker"]==ticker for a in st.session_state.aktien_liste):
+        st.session_state.aktien_liste.append({"Ticker": ticker, "Name": name, "Status": new_status})
 
 # --- Portfolio Übersicht ---
 st.subheader("📋 Portfolio")
