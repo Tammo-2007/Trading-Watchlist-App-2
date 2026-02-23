@@ -10,10 +10,11 @@ st.markdown("<h1 style='text-align: center;'>📊 Trading Dashboard Pro</h1>", u
 
 # --- Mandantenverwaltung ---
 if "mandanten" not in st.session_state:
-    st.session_state.mandanten = {}  # dict: mandantenname -> portfolio DataFrame
+    st.session_state.mandanten = {}
 if "active_mandant" not in st.session_state:
     st.session_state.active_mandant = None
 
+# --- Sidebar ---
 with st.sidebar:
     st.subheader("👤 Mandantenverwaltung")
     new_mandant = st.text_input("Neuen Mandanten anlegen")
@@ -27,14 +28,12 @@ with st.sidebar:
         else:
             st.warning("Mandant existiert bereits!")
 
-    # --- Mandant wählen ---
     if st.session_state.mandanten:
         mandant_list = list(st.session_state.mandanten.keys())
         st.session_state.active_mandant = st.selectbox("Mandant wählen", mandant_list, index=0)
     else:
         st.warning("Bitte erst einen Mandanten anlegen.")
 
-    # --- Aktie/ETF hinzufügen ---
     st.subheader("➕ Aktie/ETF hinzufügen")
     ticker_input = st.text_input("Ticker (z.B. RHM.DE)").upper()
     price_input = st.number_input("Kaufpreis (€)", min_value=0.01, step=0.01, format="%.2f")
@@ -61,7 +60,7 @@ with st.sidebar:
         st.success(f"Aktie/ETF {ticker_input} hinzugefügt!")
         st.experimental_rerun()
 
-# --- Portfolio-Funktionen ---
+# --- Portfolio Funktionen ---
 def get_portfolio():
     if st.session_state.active_mandant:
         return st.session_state.mandanten[st.session_state.active_mandant]
@@ -72,9 +71,9 @@ def set_portfolio(df):
 
 portfolio = get_portfolio()
 
-# --- Portfolio-Berechnungen ---
+# --- Portfolio Berechnungen ---
 if not portfolio.empty:
-    # Aktuelle Kurse abrufen
+    # aktuelle Preise
     tickers = portfolio["Ticker"].tolist()
     latest_prices = {}
     for t in tickers:
@@ -93,7 +92,7 @@ if not portfolio.empty:
         return pd.Series([positionswert, gewinn])
     portfolio[["Positionswert","Gewinn/Verlust"]] = portfolio.apply(compute_values, axis=1)
 
-    # Analysten-Rating & Target Price
+    # Analysten Rating & Target Price
     def get_analyst_info(ticker):
         try:
             info = yf.Ticker(ticker).info
@@ -107,8 +106,6 @@ if not portfolio.empty:
         rating, target = get_analyst_info(row["Ticker"])
         portfolio.at[idx, "Analysten-Rating"] = rating
         portfolio.at[idx, "Target Price"] = target
-
-        # Ampel-Logik
         price = row["Aktueller Preis"]
         if target and price:
             if price < target*0.95 and rating.lower() == "buy":
@@ -120,7 +117,7 @@ if not portfolio.empty:
         else:
             portfolio.at[idx, "Ampel"] = "🟡"
 
-# --- Layout: Zwei Spalten ---
+# --- Layout: zwei Spalten ---
 col1, col2 = st.columns([1,3])
 
 with col2:
@@ -128,26 +125,36 @@ with col2:
     if portfolio.empty:
         st.info("Keine Aktien vorhanden.")
     else:
-        # Portfolio Cards
+        # kontrastreiche Portfolio Cards
         for _, row in portfolio.iterrows():
+            ampel_color = {"🟢":"#28a745", "🟡":"#ffc107", "🔴":"#dc3545"}.get(row["Ampel"], "#6c757d")
             st.markdown(f"""
-            <div style="border:1px solid #ccc; padding:15px; border-radius:10px; margin-bottom:10px; background-color:#f7f7f7;">
-            <b>{row['Ticker']} {row['Ampel']}</b><br>
-            Status: {row['Status']}<br>
-            Aktueller Preis: {row['Aktueller Preis'] if row['Aktueller Preis'] else 'Kein Kurs'} €<br>
-            Positionswert: {row['Positionswert']:.2f} €<br>
-            Gewinn/Verlust: {row['Gewinn/Verlust']:.2f} €<br>
-            📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €<br>
-            ⚠️ Analysten-Rating: {row['Analysten-Rating']} | Target: {row['Target Price']} €
-            Gebühr: {row['Gebühr']} € (pro Order)
+            <div style="
+                border:1px solid #ccc; 
+                padding:15px; 
+                border-radius:10px; 
+                margin-bottom:10px; 
+                background-color:#f0f2f6;
+                color:#1c1c1c;
+                font-weight:500;
+                box-shadow:2px 2px 8px rgba(0,0,0,0.1);
+            ">
+                <span style="color:{ampel_color}; font-size:18px;"><b>{row['Ticker']} {row['Ampel']}</b></span><br>
+                Status: <b>{row['Status']}</b><br>
+                Aktueller Preis: <b>{row['Aktueller Preis'] if row['Aktueller Preis'] else 'Kein Kurs'} €</b><br>
+                Positionswert: <b>{row['Positionswert']:.2f} €</b><br>
+                Gewinn/Verlust: <b>{row['Gewinn/Verlust']:.2f} €</b><br>
+                📉 Stop-Loss: <b>{row['Stop-Loss']} €</b> | 📈 Take-Profit: <b>{row['Take-Profit']} €</b><br>
+                ⚠️ Analysten-Rating: <b>{row['Analysten-Rating']}</b> | Target: <b>{row['Target Price']} €</b><br>
+                Gebühr: <b>{row['Gebühr']} € (pro Order)</b>
             </div>
             """, unsafe_allow_html=True)
 
-        # Erwartetes Portfolio-Hoch
+        # erwartetes Portfolio-Hoch
         expected_high = sum([row["Target Price"]*row["Stückzahl"] if row["Target Price"] else 0 for _, row in portfolio.iterrows()])
         st.subheader(f"Erwartetes Portfolio-Hoch: {expected_high:.2f} €")
 
-        # Aktie auswählen für Chart
+        # Chart für einzelne Aktie
         selected_ticker = st.selectbox("Chart anzeigen für", [""] + portfolio["Ticker"].unique().tolist())
         timeframe = st.selectbox("Zeitraum", ["1T","1W","1M","1J","Max"])
         if selected_ticker:
