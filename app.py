@@ -70,14 +70,24 @@ if st.session_state.active_mandant:
         st.subheader("📋 Portfolio + Charts")
         for idx, row in portfolio.iterrows():
             ticker = row["Ticker"]
-            # Aktueller Preis
+            # Aktueller Preis abrufen
             try:
                 data = yf.download(ticker, period="5d", interval="1d", progress=False)
                 price = data["Close"].iloc[-1] if not data.empty else None
             except:
                 price = None
-            positionswert = row["Stückzahl"]*price - row["Gebühr"] if price else 0
-            gewinn = positionswert - (row["Kaufpreis"]*row["Stückzahl"] + row["Gebühr"])
+
+            # Sicher Positionswert & Gewinn berechnen
+            try:
+                price_val = float(price) if price is not None else 0.0
+                gebuehr_val = float(row["Gebühr"]) if row["Gebühr"] is not None else 0.0
+                stueckzahl_val = float(row["Stückzahl"]) if row["Stückzahl"] is not None else 0.0
+                kaufpreis_val = float(row["Kaufpreis"]) if row["Kaufpreis"] is not None else 0.0
+                positionswert = stueckzahl_val * price_val - gebuehr_val
+                gewinn = positionswert - (kaufpreis_val*stueckzahl_val + gebuehr_val)
+            except:
+                positionswert = 0.0
+                gewinn = 0.0
 
             # Hintergrundfarbe der Card
             if gewinn > 0:
@@ -99,12 +109,12 @@ if st.session_state.active_mandant:
             ">
             <b>{ticker}</b><br>
             Status: {row['Status']}<br>
-            Preis: {price if price else '–'} €<br>
+            Preis: {price_val:.2f} €<br>
             Positionswert: {positionswert:.2f} €<br>
             Gewinn/Verlust: {gewinn:.2f} €<br>
             📉 Stop-Loss: {row['Stop-Loss']} € | 📈 Take-Profit: {row['Take-Profit']} €<br>
-            ⚠️ Stop-Loss Empfehlung: {round(row['Kaufpreis']*0.95,2)} €<br>
-            Gebühr: {row['Gebühr']} € (pro Order)
+            ⚠️ Stop-Loss Empfehlung: {round(kaufpreis_val*0.95,2)} €<br>
+            Gebühr: {gebuehr_val} € (pro Order)
             </div>
             """, unsafe_allow_html=True)
 
@@ -119,7 +129,6 @@ if st.session_state.active_mandant:
                     hist["SMA20"] = hist["Close"].rolling(20).mean()
                     hist["SMA50"] = hist["Close"].rolling(50).mean()
                     df_chart = hist.reset_index()
-                    import altair as alt
                     base = alt.Chart(df_chart).encode(x="Date:T")
                     chart = alt.layer(
                         base.mark_line(color="blue").encode(y="Close:Q", tooltip=["Date:T","Close:Q"]),
