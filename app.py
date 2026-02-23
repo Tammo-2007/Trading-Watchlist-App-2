@@ -3,6 +3,8 @@ import pandas as pd
 import yfinance as yf
 import ta
 import altair as alt
+import feedparser
+import requests
 
 st.set_page_config(page_title="Trading Dashboard Profi", layout="wide")
 st.title("📊 Profi Trading Dashboard mit Portfolio-Status")
@@ -52,11 +54,34 @@ def load_today_price(ticker):
     except:
         return None
 
+# --- News Quellen ---
+RSS_FEEDS = {
+    "Finanzfluss": "https://www.finanzfluss.de/feed/",
+    "Finanztipps": "https://www.finanztipps.de/rss/news.xml",
+    "Focus Money": "https://www.focus.de/finanzen/rss/finanzen-rss.xml"
+}
+
 @st.cache_data
-def get_news(ticker):
+def get_rss_news(feed_url, ticker):
     try:
-        news_list = yf.Ticker(ticker).news
-        return news_list if news_list else []
+        feed = feedparser.parse(feed_url)
+        items = []
+        for entry in feed.entries:
+            if ticker.split('.')[0].upper() in entry.get("title","").upper() or \
+               ticker.split('.')[0].upper() in entry.get("summary","").upper():
+                items.append({"title": entry.get("title",""), "link": entry.get("link","")})
+        return items
+    except:
+        return []
+
+@st.cache_data
+def get_google_news(ticker):
+    try:
+        search_query = f"{ticker} OR {get_company_name(ticker)}"
+        url = f"https://news.google.com/rss/search?q={search_query}"
+        feed = feedparser.parse(url)
+        items = [{"title": e.get("title",""), "link": e.get("link","")} for e in feed.entries]
+        return items
     except:
         return []
 
@@ -176,7 +201,7 @@ if st.session_state.aktien_liste:
         tendenz = forecast_trend(df_selected)
 
         # --- Tabs ---
-        tab1, tab2, tab3, tab4 = st.tabs(["📈 Historische Charts", "📉 Intraday-Kurs", "📰 News", "📊 Advanced Signal & Trend"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Historische Charts", "📉 Intraday-Kurs", "📰 News YFinance", "📰 News Extern", "📊 Advanced Signal & Trend"])
 
         # Tab 1: Historische Charts
         with tab1:
@@ -207,20 +232,36 @@ if st.session_state.aktien_liste:
             else:
                 st.info("Keine Intraday-Daten für heute verfügbar.")
 
-        # Tab 3: News
+        # Tab 3: YFinance News
         with tab3:
-            st.subheader("Aktuelle Nachrichten")
-            news = get_news(selected_ticker)
+            st.subheader("YFinance News")
+            news = yf.Ticker(selected_ticker).news
             if news:
                 for article in news[:5]:
                     with st.expander(article.get('title', 'Keine Überschrift')):
                         st.write(article.get('publisher', 'Unbekannt'))
                         st.write(article.get('link', ''))
             else:
-                st.info("Keine aktuellen News verfügbar.")
+                st.info("Keine aktuellen News über YFinance verfügbar.")
 
-        # Tab 4: Advanced Signal & Trend
+        # Tab 4: Externe News
         with tab4:
+            st.subheader("Externe News")
+            all_external_news = {}
+            for name, url in RSS_FEEDS.items():
+                all_external_news[name] = get_rss_news(url, selected_ticker)
+            all_external_news["Google News"] = get_google_news(selected_ticker)
+
+            for source, articles in all_external_news.items():
+                with st.expander(source):
+                    if articles:
+                        for a in articles[:5]:
+                            st.write(f"- [{a['title']}]({a['link']})")
+                    else:
+                        st.write("Keine News verfügbar")
+
+        # Tab 5: Advanced Signal & Trend
+        with tab5:
             st.subheader("Advanced Signal & Trend")
             st.write("Trendprognose:", tendenz)
             st.dataframe(df_selected[["Close","SMA20","SMA50","RSI","MACD","MACD_signal","Advanced_Signal"]].tail(10))
