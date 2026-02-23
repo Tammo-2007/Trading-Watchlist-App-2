@@ -39,7 +39,14 @@ def get_latest_prices_safe(tickers):
             latest[t] = 0.0
     return pd.Series(latest)
 
-# --- 1️⃣ Portfolio Tab (Cards) ---
+def get_sparkline_data(ticker, points=10):
+    try:
+        data = yf.download(ticker, period="1mo", interval="1d", progress=False)["Close"]
+        return data[-points:] if not data.empty else pd.Series([0]*points)
+    except:
+        return pd.Series([0]*points)
+
+# --- 1️⃣ Portfolio Tab (Cards + Farbliche Sparkline) ---
 with tab1:
     st.subheader("Dein Portfolio (Cards)")
 
@@ -58,13 +65,28 @@ with tab1:
 
                 status_icon = "🟢" if row['Status']=="Besitzt" else "🟡"
 
-                # Farbcode Gewinn/Verlust – gut lesbar
+                # Farbcode Gewinn/Verlust
                 if gewinn_verlust > 0:
                     pnl_style = "color:#0a7f0a; animation: blinkGreen 1s infinite; font-weight:bold;"
+                    spark_color = "#0a7f0a"
                 elif gewinn_verlust < 0:
                     pnl_style = "color:#c40000; animation: blinkRed 1s infinite; font-weight:bold;"
+                    spark_color = "#c40000"
                 else:
                     pnl_style = "color:#1a73e8; font-weight:bold;"
+                    spark_color = "#1a73e8"
+
+                # Sparkline Chart
+                spark_data = get_sparkline_data(row['Ticker'])
+                if spark_data.sum() > 0:
+                    spark_df = spark_data.reset_index()
+                    spark_chart = alt.Chart(spark_df).mark_line(color=spark_color, strokeWidth=2).encode(
+                        x='index',
+                        y='Close:Q'
+                    ).properties(height=50, width=200)
+                    st.altair_chart(spark_chart, use_container_width=True)
+                else:
+                    st.markdown("<p style='color:#555;'>Keine Kursdaten</p>", unsafe_allow_html=True)
 
                 st.markdown(
                     f"""
@@ -77,11 +99,12 @@ with tab1:
                         display: inline-block;
                         border-bottom: 1px dotted black;
                         cursor: help;
+                        color: #333;
                     }}
                     .tooltip .tooltiptext {{
                         visibility: hidden;
-                        width: 120px;
-                        background-color: #555;
+                        width: 140px;
+                        background-color: #333;
                         color: #fff;
                         text-align: center;
                         border-radius: 6px;
@@ -90,17 +113,14 @@ with tab1:
                         z-index: 1;
                         bottom: 125%;
                         left: 50%;
-                        margin-left: -60px;
+                        margin-left: -70px;
                         opacity: 0;
                         transition: opacity 0.3s;
                     }}
-                    .tooltip:hover .tooltiptext {{
-                        visibility: visible;
-                        opacity: 1;
-                    }}
+                    .tooltip:hover .tooltiptext {{ visibility: visible; opacity:1; }}
                     </style>
                     <div class="card" style="border-radius:12px; padding:15px; background-color:#f0f2f6;
-                                box-shadow: 2px 2px 8px rgba(0,0,0,0.15); cursor:pointer;">
+                                box-shadow: 2px 2px 8px rgba(0,0,0,0.15); cursor:pointer; color:#333;">
                         <h3>{row['Ticker']} {status_icon}</h3>
                         <p>Status: <b>{row['Status']}</b></p>
                         <p>Aktueller Preis: <b>{price_display}</b></p>
@@ -119,12 +139,12 @@ with tab1:
                     unsafe_allow_html=True
                 )
 
-                # Card klickbar → Chart
+                # Chart-Button → Chart-Tab
                 if st.button(f"Chart {row['ID']}", key=f"chart_{row['ID']}"):
                     st.session_state.selected_ticker = row["Ticker"]
                     st.experimental_rerun()
 
-                # Löschen-Button
+                # Löschen
                 if st.button("Löschen", key=row["ID"]):
                     st.session_state.portfolio = df[df["ID"] != row["ID"]].reset_index(drop=True)
                     st.experimental_rerun()
