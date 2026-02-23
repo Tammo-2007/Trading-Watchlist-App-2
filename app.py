@@ -4,7 +4,7 @@ import yfinance as yf
 import ta
 import altair as alt
 
-# RSS News
+# --- RSS News Parser ---
 try:
     import feedparser
     FEEDPARSER_AVAILABLE = True
@@ -18,7 +18,7 @@ st.title("📊 Kompaktes Trading Dashboard – Alles auf einen Blick")
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = []
 
-# --- Einstellungen für Signale ---
+# --- Einstellungen Signale ---
 st.subheader("🔧 Einstellungen für Signale")
 col1, col2, col3 = st.columns(3)
 sma20_period = col1.slider("SMA20 Periode", 5,50,20, help="Kurzfristiger gleitender Durchschnitt")
@@ -37,7 +37,7 @@ new_name = col_n.text_input("Name (optional)")
 new_status = col_s.selectbox("Status", ["Beobachtung","Besitzt"])
 if col_b.button("Hinzufügen"):
     inp = new_input.strip()
-    if "." not in inp and len(inp)<5:  # kurzer Ticker, .DE ergänzen
+    if "." not in inp and len(inp)<5:
         ticker = inp.upper() + ".DE"
     else:
         ticker = inp.upper()
@@ -52,7 +52,8 @@ for i,a in enumerate(st.session_state.aktien_liste):
     cols = st.columns([0.05,0.5,0.2,0.15])
     selected = cols[0].checkbox("", key=f"chk_{i}", help="Markiere zum Auswählen der Aktie")
     cols[1].write(f"{a['Name']} ({a['Ticker']})")
-    cols[2].write(f"{'🟢' if a['Status']=='Besitzt' else '🟡'} {a['Status']}")
+    status_icon = "🟢" if a['Status']=="Besitzt" else "🟡"
+    cols[2].write(f"{status_icon} {a['Status']}")
     if cols[3].button("Löschen", key=f"del_{i}", help="Klicke zum Löschen dieser Aktie"):
         to_delete.append(i)
 
@@ -86,12 +87,20 @@ if st.session_state.aktien_liste:
             macd_signal = ta.trend.MACD(df["Close"]).macd_signal().dropna().iloc[-1]
             score += trend_weight_rsi*(1 if rsi<30 else (-1 if rsi>70 else 0))
             score += trend_weight_macd*(1 if macd>macd_signal else -1)
-            signal = "Stark Kauf" if score>=2 else ("Stark Verkauf" if score<=-2 else "Halten")
-            st.write(f"**Advanced Signal:** {signal}")
+            if score>=2:
+                signal = "Stark Kauf"
+                color = "green"
+            elif score<=-2:
+                signal = "Stark Verkauf"
+                color = "red"
+            else:
+                signal = "Halten"
+                color = "orange"
+            st.markdown(f"**Advanced Signal:** <span style='color:{color}'>{signal}</span>", unsafe_allow_html=True)
         else:
             st.warning("Nicht genügend Daten für Advanced Signal")
 
-        # Historischer Chart mit Tooltips
+        # Chart mit Tooltips
         df_reset = df.reset_index()
         df_plot = df_reset[["Date","Close","SMA20","SMA50"]].dropna()
         if not df_plot.empty and len(df_plot)>1:
@@ -107,7 +116,7 @@ if st.session_state.aktien_liste:
         else:
             st.warning("Nicht genügend Daten für Chartanzeige")
 
-        # News
+        # RSS-News
         if FEEDPARSER_AVAILABLE:
             st.subheader("📰 News")
             RSS_FEEDS = {
