@@ -34,6 +34,7 @@ col_t, col_n, col_s, col_b = st.columns([2,3,2,1])
 new_ticker = col_t.text_input("Ticker", help="z.B. RHM oder CSG.AS")
 new_name = col_n.text_input("Name (optional)", help="Optionaler Firmenname")
 new_status = col_s.selectbox("Status", ["Beobachtung","Besitzt"], help="Besitzt: Aktie im Portfolio, Beobachtung: nur beobachten")
+
 if col_b.button("Hinzufügen"):
     t = new_ticker.strip().upper()
     n = new_name.strip() if new_name else t
@@ -49,8 +50,7 @@ for i,a in enumerate(st.session_state.aktien_liste):
     selected = cols[0].checkbox("", key=f"chk_{i}")
     cols[1].write(f"{a['Name']} ({a['Ticker']})")
     cols[2].write(f"{'🟢' if a['Status']=='Besitzt' else '🟡'} {a['Status']}")
-    delete = cols[3].button("Löschen", key=f"del_{i}")
-    if delete:
+    if cols[3].button("Löschen", key=f"del_{i}"):
         to_delete.append(i)
 if to_delete:
     for i in reversed(to_delete):
@@ -73,18 +73,22 @@ if st.session_state.aktien_liste:
         st.metric(label=f"{selected_ticker} Preis", value=f"{current_price:.2f} €")
 
         # --- Advanced Signal ---
-        last = df.dropna().tail(1).iloc[0]
-        score = 0
-        score += 1 if last["SMA20"]>last["SMA50"] else -1
-        rsi = ta.momentum.RSIIndicator(df["Close"],14).rsi().dropna().iloc[-1]
-        macd = ta.trend.MACD(df["Close"]).macd().dropna().iloc[-1]
-        macd_signal = ta.trend.MACD(df["Close"]).macd_signal().dropna().iloc[-1]
-        score += trend_weight_rsi*(1 if rsi<30 else (-1 if rsi>70 else 0))
-        score += trend_weight_macd*(1 if macd>macd_signal else -1)
-        signal = "Stark Kauf" if score>=2 else ("Stark Verkauf" if score<=-2 else "Halten")
-        st.write(f"**Advanced Signal:** {signal}")
+        df_clean = df.dropna(subset=["SMA20","SMA50"])
+        if not df_clean.empty:
+            last = df_clean.tail(1).iloc[0]
+            score = 0
+            score += 1 if last["SMA20"]>last["SMA50"] else -1
+            rsi = ta.momentum.RSIIndicator(df["Close"],14).rsi().dropna().iloc[-1]
+            macd = ta.trend.MACD(df["Close"]).macd().dropna().iloc[-1]
+            macd_signal = ta.trend.MACD(df["Close"]).macd_signal().dropna().iloc[-1]
+            score += trend_weight_rsi*(1 if rsi<30 else (-1 if rsi>70 else 0))
+            score += trend_weight_macd*(1 if macd>macd_signal else -1)
+            signal = "Stark Kauf" if score>=2 else ("Stark Verkauf" if score<=-2 else "Halten")
+            st.write(f"**Advanced Signal:** {signal}")
+        else:
+            st.warning("Nicht genügend Daten für Advanced Signal")
 
-        # --- Historischer Chart (NaNs entfernt) ---
+        # --- Historischer Chart ---
         df_reset = df.reset_index()
         df_plot = df_reset[["Date","Close","SMA20","SMA50"]].dropna()
         if not df_plot.empty:
