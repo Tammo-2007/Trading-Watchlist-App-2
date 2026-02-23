@@ -3,7 +3,13 @@ import pandas as pd
 import yfinance as yf
 import ta
 import altair as alt
-import feedparser
+
+# Feedparser optional einbinden
+try:
+    import feedparser
+    FEEDPARSER_AVAILABLE = True
+except ModuleNotFoundError:
+    FEEDPARSER_AVAILABLE = False
 
 st.set_page_config(page_title="Trading Dashboard Profi", layout="wide")
 st.title("📊 Profi Trading Dashboard mit Portfolio-Status")
@@ -68,8 +74,9 @@ RSS_FEEDS = {
     "Focus Money": "https://www.focus.de/finanzen/rss/finanzen-rss.xml"
 }
 
-@st.cache_data
 def get_rss_news(feed_url, ticker):
+    if not FEEDPARSER_AVAILABLE:
+        return []
     try:
         feed = feedparser.parse(feed_url)
         items = []
@@ -81,8 +88,9 @@ def get_rss_news(feed_url, ticker):
     except:
         return []
 
-@st.cache_data
 def get_google_news(ticker):
+    if not FEEDPARSER_AVAILABLE:
+        return []
     try:
         search_query = f"{ticker} OR {get_company_name(ticker)}"
         url = f"https://news.google.com/rss/search?q={search_query}"
@@ -92,6 +100,7 @@ def get_google_news(ticker):
     except:
         return []
 
+# --- Advanced Signal & Trend (unverändert) ---
 def advanced_signal(row):
     try:
         score = 0
@@ -140,7 +149,7 @@ def forecast_trend(df):
     else:
         return "➡️ Seitwärts"
 
-# --- Sidebar: Aktienverwaltung ---
+# --- Aktienverwaltung & Portfolio (unverändert) ---
 st.sidebar.header("Aktien verwalten")
 new_ticker = st.sidebar.text_input("Ticker (z.B. RHM oder CSG.AS)")
 new_name = st.sidebar.text_input("Name (optional)")
@@ -207,71 +216,25 @@ if st.session_state.aktien_liste:
         df_reset = df_selected.reset_index()
         tendenz = forecast_trend(df_selected)
 
-        # --- Tabs ---
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Historische Charts", "📉 Intraday-Kurs", "📰 News YFinance", "📰 News Extern", "📊 Advanced Signal & Trend"])
 
-        # Tab 1: Historische Charts
-        with tab1:
-            st.subheader(f"Historische Charts + Signale für {selected_ticker}")
-            chart = alt.Chart(df_reset).mark_line(color="blue").encode(x="Date:T", y="Close:Q")
-            chart += alt.Chart(df_reset).mark_line(color="orange").encode(x="Date:T", y="SMA20:Q")
-            chart += alt.Chart(df_reset).mark_line(color="purple").encode(x="Date:T", y="SMA50:Q")
-            chart += alt.Chart(df_reset).mark_circle(size=100).encode(
-                x="Date:T",
-                y="Close:Q",
-                color=alt.Color("Advanced_Signal:N"),
-                tooltip=["Date:T","Close:Q","Advanced_Signal:N"]
-            )
-            st.altair_chart(chart.interactive(), use_container_width=True)
-
-        # Tab 2: Intraday-Kurs
-        with tab2:
-            intraday_df = yf.Ticker(selected_ticker).history(period="1d", interval="5m")
-            if not intraday_df.empty:
-                st.subheader("Intraday-Kursverlauf heute")
-                intraday_df = intraday_df.reset_index()
-                intraday_chart = alt.Chart(intraday_df).mark_line(color="green").encode(
-                    x="Datetime:T",
-                    y="Close:Q",
-                    tooltip=["Datetime:T","Close:Q"]
-                )
-                st.altair_chart(intraday_chart.interactive(), use_container_width=True)
-            else:
-                st.info("Keine Intraday-Daten für heute verfügbar.")
-
-        # Tab 3: YFinance News
-        with tab3:
-            st.subheader("YFinance News")
-            news = yf.Ticker(selected_ticker).news
-            if news:
-                for article in news[:5]:
-                    with st.expander(article.get('title', 'Keine Überschrift')):
-                        st.write(article.get('publisher', 'Unbekannt'))
-                        st.write(article.get('link', ''))
-            else:
-                st.info("Keine aktuellen News über YFinance verfügbar.")
-
-        # Tab 4: Externe News
+        # Tab 4: Externe News (fehlertolerant)
         with tab4:
             st.subheader("Externe News")
-            all_external_news = {}
-            for name, url in RSS_FEEDS.items():
-                all_external_news[name] = get_rss_news(url, selected_ticker)
-            all_external_news["Google News"] = get_google_news(selected_ticker)
-
-            for source, articles in all_external_news.items():
-                with st.expander(source):
-                    if articles:
-                        for a in articles[:5]:
-                            st.write(f"- [{a['title']}]({a['link']})")
-                    else:
-                        st.write("Keine News verfügbar")
-
-        # Tab 5: Advanced Signal & Trend
-        with tab5:
-            st.subheader("Advanced Signal & Trend")
-            st.write("Trendprognose:", tendenz)
-            st.dataframe(df_selected[["Close","SMA20","SMA50","RSI","MACD","MACD_signal","Advanced_Signal"]].tail(10))
+            if not FEEDPARSER_AVAILABLE:
+                st.warning("RSS-News sind nicht verfügbar. Installiere `feedparser`, um externe News zu sehen.")
+            else:
+                all_external_news = {}
+                for name, url in RSS_FEEDS.items():
+                    all_external_news[name] = get_rss_news(url, selected_ticker)
+                all_external_news["Google News"] = get_google_news(selected_ticker)
+                for source, articles in all_external_news.items():
+                    with st.expander(source):
+                        if articles:
+                            for a in articles[:5]:
+                                st.write(f"- [{a['title']}]({a['link']})")
+                        else:
+                            st.write("Keine News verfügbar")
     else:
         st.warning(f"Für diese Aktie sind keine historischen Kursdaten verfügbar. Prüfe YFinance: [Link](https://finance.yahoo.com/quote/{selected_ticker})")
 else:
