@@ -21,6 +21,11 @@ tab1, tab2, tab3 = st.tabs(["📋 Portfolio", "➕ Aktie hinzufügen", "📈 Kur
 # --- 1️⃣ Portfolio Tab ---
 with tab1:
     st.subheader("Dein Portfolio")
+
+    # ID-Spalte sicherstellen (für alte Einträge ohne UUID)
+    if "ID" not in st.session_state.portfolio.columns:
+        st.session_state.portfolio["ID"] = [str(uuid.uuid4()) for _ in range(len(st.session_state.portfolio))]
+
     if st.session_state.portfolio.empty:
         st.info("Keine Aktien im Portfolio.")
     else:
@@ -49,7 +54,7 @@ with tab1:
                 return "SELL"
         df["Signal"] = df.apply(compute_signal, axis=1)
 
-        # --- Modernes DataFrame mit Farben ---
+        # --- Farbige Signale ---
         def color_signal(val):
             if val == "SELL":
                 color = "background-color: #ff4d4d; color:white"
@@ -58,11 +63,15 @@ with tab1:
             else:
                 color = "background-color: #2196f3; color:white"
             return color
+
         st.dataframe(df.style.applymap(color_signal, subset=["Signal"]), height=300)
 
         # --- Löschen mit eindeutiger ID ---
         st.markdown("### Aktien löschen")
-        delete_options = df[["ID","Ticker"]].apply(lambda x: f"{x['Ticker']} ({x['ID'][:6]})", axis=1).tolist()
+        if not df.empty:
+            delete_options = df[["ID","Ticker"]].apply(lambda x: f"{x['Ticker']} ({x['ID'][:6]})", axis=1).tolist()
+        else:
+            delete_options = []
         delete_choice = st.selectbox("Wähle Aktie zum Löschen", [""] + delete_options)
         if st.button("Löschen"):
             if delete_choice:
