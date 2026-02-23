@@ -52,10 +52,6 @@ with st.form("portfolio_form"):
 if add_button and ticker_or_name:
     ticker_clean = ticker_or_name.upper().strip()
     
-    # Automatische Anpassung: deutscher Ticker bekommt .DE
-    if "." not in ticker_clean and len(ticker_clean) <= 5:
-        ticker_clean += ".DE"
-
     # Prüfen, ob bereits vorhanden
     found = any(a["ticker"].upper() == ticker_clean for a in st.session_state.aktien_liste)
     if not found:
@@ -66,6 +62,7 @@ if add_button and ticker_or_name:
         })
         save_portfolio()
         st.success(f"Aktie {ticker_clean} wurde hinzugefügt!")
+        st.experimental_rerun()
 
 # --- Portfolio Übersicht ---
 st.subheader("📋 Portfolio")
@@ -89,10 +86,17 @@ if st.session_state.aktien_liste:
         [a["ticker"] for a in st.session_state.aktien_liste]
     )
 
-    # --- Kursdaten laden ---
+    # --- Kursdaten laden mit automatischer Tickerprüfung ---
     @st.cache_data
     def load_data(ticker):
+        ticker = ticker.upper().strip()
         df = yf.download(ticker, period="6mo", interval="1d")
+        
+        # Wenn keine Daten, prüfen, ob .DE anhängen hilft
+        if df.empty and "." not in ticker and len(ticker) <= 5:
+            ticker_de = ticker + ".DE"
+            df = yf.download(ticker_de, period="6mo", interval="1d")
+        
         if df.empty:
             return None
         df.reset_index(inplace=True)
