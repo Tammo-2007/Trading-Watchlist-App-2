@@ -45,32 +45,35 @@ with tab1:
 
     df = st.session_state.portfolio.copy()
     df["Aktueller Preis"] = df["Ticker"].map(get_latest_prices_safe(df["Ticker"].unique()))
-    df["Positionswert"] = df["Aktueller Preis"] * df["Stückzahl"] - df["Gebühr"]
-    df["Gewinn/Verlust"] = df["Positionswert"] - (df["Kaufpreis"] * df["Stückzahl"] + df["Gebühr"])
-
-    def pnl_color(val):
-        if val > 0:
-            return "#4caf50"  # grün
-        elif val < 0:
-            return "#ff4d4d"  # rot
-        else:
-            return "#2196f3"  # blau
 
     cols_per_row = 3
     for i in range(0, len(df), cols_per_row):
         cols = st.columns(cols_per_row)
         for j, row in df.iloc[i:i+cols_per_row].iterrows():
             with cols[j % cols_per_row]:
-                # Markierung bei fehlenden Kursen
-                price_display = f"{row['Aktueller Preis']:.2f} €" if row['Aktueller Preis'] > 0 else "Kein Kurs"
+                price = row['Aktueller Preis']
+                # Nur berechnen, wenn Preis > 0
+                positionswert = row['Stückzahl']*price - row['Gebühr'] if price > 0 else 0
+                gewinn_verlust = positionswert - (row['Kaufpreis']*row['Stückzahl'] + row['Gebühr']) if price > 0 else 0
+                price_display = f"{price:.2f} €" if price > 0 else "Kein Kurs"
+
+                def pnl_color(val):
+                    if val > 0:
+                        return "#4caf50"
+                    elif val < 0:
+                        return "#ff4d4d"
+                    else:
+                        return "#2196f3"
+
                 st.markdown(
                     f"""
-                    <div style="border-radius:10px; padding:15px; background-color:#f0f2f6; box-shadow: 2px 2px 6px rgba(0,0,0,0.1);">
+                    <div style="border-radius:10px; padding:15px; background-color:#f0f2f6;
+                                box-shadow: 2px 2px 6px rgba(0,0,0,0.1);">
                         <h3>{row['Ticker']}</h3>
                         <p>Status: <b>{row['Status']}</b></p>
                         <p>Aktueller Preis: <b>{price_display}</b></p>
-                        <p>Positionswert: <b>{row['Positionswert']:.2f} €</b></p>
-                        <p style="color:{pnl_color(row['Gewinn/Verlust'])}">Gewinn/Verlust: <b>{row['Gewinn/Verlust']:.2f} €</b></p>
+                        <p>Positionswert: <b>{positionswert:.2f} €</b></p>
+                        <p style="color:{pnl_color(gewinn_verlust)}">Gewinn/Verlust: <b>{gewinn_verlust:.2f} €</b></p>
                         <p>Stop-Loss: {row['Stop-Loss']} € | Take-Profit: {row['Take-Profit']} €</p>
                     </div>
                     """,
