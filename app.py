@@ -1,10 +1,9 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import datetime
 import altair as alt
 
-# Optional: RSS-News
+# --- RSS-News optional ---
 try:
     import feedparser
     FEED_AVAILABLE = True
@@ -22,7 +21,6 @@ if "selected_ticker" not in st.session_state:
 
 # --- Kompakte Eingabe ---
 st.subheader("🔧 Signaleinstellungen & Aktie hinzufügen")
-
 cols = st.columns([2,2,2,2])
 with cols[0]:
     ticker_input = st.text_input("Ticker (z.B. RHM.DE)").upper()
@@ -48,34 +46,47 @@ if st.button("Aktie hinzufügen"):
 # --- Portfolio-Tabelle ---
 st.subheader("📋 Portfolio")
 if st.session_state.portfolio:
+    # Sicherstellen, dass alle Spalten vorhanden sind
     portfolio_df = pd.DataFrame(st.session_state.portfolio)
+    for col in ["Ticker","Kaufpreis","Stückzahl","Status","Gebühr"]:
+        if col not in portfolio_df.columns:
+            portfolio_df[col] = 0 if col in ["Kaufpreis","Stückzahl","Gebühr"] else ""
+
+    # Aktuelle Preise abrufen
     prices = []
     values = []
     profits = []
     signals = []
 
-    for idx, row in portfolio_df.iterrows():
+    for _, row in portfolio_df.iterrows():
+        current_price = 0
         try:
             data = yf.download(row["Ticker"], period="1d")
-            current_price = data["Close"].iloc[-1] if not data.empty else 0
+            if not data.empty:
+                current_price = data["Close"].iloc[-1]
         except:
-            current_price = 0
-
+            pass
         prices.append(current_price)
+
         pos_value = current_price * row["Stückzahl"] - row["Gebühr"]
         values.append(pos_value)
+
         profit = pos_value - (row["Kaufpreis"] * row["Stückzahl"] + row["Gebühr"])
         profits.append(profit)
-        # Einfacher Signalplatzhalter
+
         signals.append("Halten" if profit >= 0 else "SELL")
 
     portfolio_df["Aktueller Preis"] = prices
     portfolio_df["Positionswert"] = values
     portfolio_df["Gewinn/Verlust"] = profits
     portfolio_df["Signal"] = signals
-    st.dataframe(portfolio_df[["Ticker","Aktueller Preis","Positionswert","Gewinn/Verlust","Signal","Status","Gebühr"]], height=250)
 
-    # Auswahl für Kursverlauf
+    st.dataframe(
+        portfolio_df[["Ticker","Aktueller Preis","Positionswert","Gewinn/Verlust","Signal","Status","Gebühr"]],
+        height=250
+    )
+
+    # Kursverlauf auswählen
     selected = st.selectbox("Wähle eine Aktie", portfolio_df["Ticker"])
     st.session_state.selected_ticker = selected
 else:
