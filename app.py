@@ -36,7 +36,7 @@ def get_latest_prices_safe(tickers):
         try:
             data = yf.download(t, period="5d", interval="1d", progress=False)
             if "Close" in data:
-                latest[t] = data["Close"].iloc[-1]
+                latest[t] = float(data["Close"].iloc[-1])
             else:
                 latest[t] = 0.0
         except:
@@ -50,9 +50,9 @@ def get_sparkline_data(ticker, points=10):
         if "Close" in data:
             series = data["Close"].tail(points)
             if isinstance(series, pd.Series):
-                return series
+                return series.astype(float)
             else:
-                return pd.Series(series)
+                return pd.Series(series).astype(float)
         else:
             return pd.Series([0]*points)
     except:
@@ -64,14 +64,15 @@ with tab1:
 
     df = st.session_state.portfolio.copy()
     if not df.empty:
-        df["Aktueller Preis"] = df["Ticker"].map(get_latest_prices_safe(df["Ticker"].unique()))
+        df["Aktueller Preis"] = df["Ticker"].map(get_latest_prices_safe).apply(lambda x: float(x) if pd.notnull(x) else 0.0)
 
         cols_per_row = 3
         for i in range(0, len(df), cols_per_row):
             cols = st.columns(cols_per_row)
             for j, row in df.iloc[i:i+cols_per_row].iterrows():
                 with cols[j % cols_per_row]:
-                    price = row['Aktueller Preis']
+                    # Sicherstellen, dass price ein float ist
+                    price = float(row['Aktueller Preis']) if pd.notnull(row['Aktueller Preis']) else 0.0
                     positionswert = row['Stückzahl']*price - row['Gebühr'] if price > 0 else 0
                     gewinn_verlust = positionswert - (row['Kaufpreis']*row['Stückzahl'] + row['Gebühr']) if price > 0 else 0
                     price_display = f"{price:.2f} €" if price > 0 else "Kein Kurs"
