@@ -11,12 +11,7 @@ st.title("📊 Profi Trading Dashboard mit Portfolio-Status")
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = []
 
-# --- Sidebar: Aktien verwalten ---
-st.sidebar.header("Aktien verwalten")
-new_ticker = st.sidebar.text_input("Ticker (z.B. HEI.DE)")
-new_name = st.sidebar.text_input("Name (optional)")
-new_status = st.sidebar.selectbox("Status", ["Beobachtung", "Besitzt"])
-
+# --- Hilfsfunktionen ---
 def ticker_valid(ticker):
     if not ticker:
         return False
@@ -26,14 +21,28 @@ def ticker_valid(ticker):
     except:
         return False
 
+def get_company_name(ticker):
+    try:
+        info = yf.Ticker(ticker).info
+        return info.get("shortName", ticker)
+    except:
+        return ticker
+
+# --- Sidebar: Aktien verwalten ---
+st.sidebar.header("Aktien verwalten")
+new_ticker = st.sidebar.text_input("Ticker (z.B. HEI.DE)")
+new_name = st.sidebar.text_input("Name (optional)")
+new_status = st.sidebar.selectbox("Status", ["Beobachtung", "Besitzt"])
+
 if st.sidebar.button("Aktie hinzufügen"):
     if not new_ticker and not new_name:
         st.sidebar.warning("Bitte mindestens Ticker oder Name eingeben")
     else:
         valid = ticker_valid(new_ticker)
+        name_to_use = new_name if new_name else get_company_name(new_ticker)
         st.session_state.aktien_liste.append({
             "Ticker": new_ticker.upper() if new_ticker else "",
-            "Name": new_name if new_name else new_ticker.upper(),
+            "Name": name_to_use,
             "Status": new_status,
             "ValidTicker": valid
         })
