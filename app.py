@@ -2,16 +2,22 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import yaml
 import json
 import os
 import logging
 import time
-from datetime import datetime
 
-# ==============================
-# CONFIG & LOGGING
-# ==============================
+# =====================================
+# SETTINGS (JETZT DIREKT IM CODE)
+# =====================================
+
+WATCHLIST = ["PLTR", "NVDA", "TSLA", "SMCI", "CSG.AS"]
+AUTO_REFRESH_SECONDS = 900  # 15 Minuten
+RISK_PERCENT_DEFAULT = 1.0
+
+# =====================================
+# LOGGING
+# =====================================
 
 logging.basicConfig(
     filename="trading.log",
@@ -21,29 +27,20 @@ logging.basicConfig(
 
 st.set_page_config(layout="wide")
 
-# ==============================
-# AUTO REFRESH 15 MIN
-# ==============================
+# =====================================
+# AUTO REFRESH
+# =====================================
 
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
 
-if time.time() - st.session_state.last_refresh > 900:
+if time.time() - st.session_state.last_refresh > AUTO_REFRESH_SECONDS:
     st.session_state.last_refresh = time.time()
-    st.experimental_rerun()
+    st.rerun()
 
-# ==============================
-# LOAD CONFIG
-# ==============================
-
-with open("config.yaml") as f:
-    config = yaml.safe_load(f)
-
-watchlist = config["watchlist"]
-
-# ==============================
+# =====================================
 # CACHE
-# ==============================
+# =====================================
 
 CACHE_FILE = "data_cache.json"
 
@@ -72,9 +69,9 @@ def load_data(ticker):
 
     return daily, weekly
 
-# ==============================
+# =====================================
 # INDICATORS
-# ==============================
+# =====================================
 
 def calculate_indicators(df):
 
@@ -99,6 +96,7 @@ def calculate_indicators(df):
 
     ema12 = df["Close"].ewm(span=12).mean()
     ema26 = df["Close"].ewm(span=26).mean()
+
     df["MACD"] = ema12 - ema26
     df["MACD_Signal"] = df["MACD"].ewm(span=9).mean()
 
@@ -118,21 +116,27 @@ def calculate_indicators(df):
 
     return df
 
-# ==============================
+# =====================================
 # RISK CALCULATOR
-# ==============================
+# =====================================
 
-def risk_calc(capital, entry, swing_low):
+def risk_calc(capital, entry, swing_low, risk_percent):
+
     stop = swing_low * 0.9
+    risk_amount = capital * (risk_percent / 100)
     risk_per_share = entry - stop
-    size = capital * 0.01 / risk_per_share
+
+    if risk_per_share <= 0:
+        return 0, stop
+
+    size = risk_amount / risk_per_share
     return int(size), round(stop, 2)
 
-# ==============================
+# =====================================
 # DASHBOARD
-# ==============================
+# =====================================
 
-st.title("📊 Trading Dashboard Pro")
+st.title("📊 Trading Dashboard Pro (Monolith)")
 
 dark = st.toggle("Dark Mode")
 
@@ -146,21 +150,24 @@ if dark:
         unsafe_allow_html=True
     )
 
-watch_data = []
 alerts = []
+watch_data = []
 
-for ticker in watchlist:
+for ticker in WATCHLIST:
 
     daily, weekly = load_data(ticker)
-    daily = calculate_indicators(daily)
 
+    if daily.empty:
+        continue
+
+    daily = calculate_indicators(daily)
     current = daily.iloc[-1]
 
     if current["GoldenCross"]:
-        alerts.append(f"{ticker} Golden Cross")
+        alerts.append(f"{ticker}: Golden Cross")
 
     if current["RSI"] < 30:
-        alerts.append(f"{ticker} RSI Oversold")
+        alerts.append(f"{ticker}: RSI Oversold")
 
     perf = ((current["Close"] / daily.iloc[-20]["Close"]) - 1) * 100
 
@@ -174,10 +181,10 @@ for ticker in watchlist:
 
     watch_data.append({
         "Ticker": ticker,
-        "Price": round(current["Close"],2),
-        "RSI": round(current["RSI"],2),
+        "Price": round(current["Close"], 2),
+        "RSI": round(current["RSI"], 2),
         "MA Status": "Bullish" if current["MA50"] > current["MA200"] else "Bearish",
-        "1M %": round(perf,2),
+        "1M %": round(perf, 2),
         "P/E": pe,
         "Debt/Equity": debt
     })
@@ -187,11 +194,11 @@ watch_df = pd.DataFrame(watch_data)
 st.subheader("Watchlist")
 st.dataframe(watch_df)
 
-# ==============================
+# =====================================
 # CHARTS
-# ==============================
+# =====================================
 
-ticker = st.selectbox("Ticker wählen", watchlist)
+ticker = st.selectbox("Ticker wählen", WATCHLIST)
 daily, weekly = load_data(ticker)
 daily = calculate_indicators(daily)
 
@@ -199,7 +206,7 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
     st.subheader("Monat (Ichimoku)")
-    st.line_chart(daily[["Close","Tenkan","Kijun"]].tail(30))
+    st.line_chart(daily[["Close", "Tenkan", "Kijun"]].tail(30))
 
 with col2:
     st.subheader("Woche (MA)")
@@ -207,27 +214,29 @@ with col2:
 
 with col3:
     st.subheader("Tag (RSI/MACD)")
-    st.line_chart(daily[["RSI","MACD"]].tail(60))
+    st.line_chart(daily[["RSI", "MACD"]].tail(60))
 
-# ==============================
+# =====================================
 # RISK MODULE
-# ==============================
+# =====================================
 
 st.subheader("Risiko-Rechner")
 
 capital = st.number_input("Kapital", value=10000)
+risk_percent = st.slider("Risiko %", 0.5, 5.0, RISK_PERCENT_DEFAULT)
+
 if st.button("Berechne Position"):
 
     entry = daily.iloc[-1]["Close"]
     swing_low = daily["Low"].rolling(20).min().iloc[-1]
 
-    size, stop = risk_calc(capital, entry, swing_low)
+    size, stop = risk_calc(capital, entry, swing_low, risk_percent)
 
     st.success(f"Positionsgröße: {size} Stück | Stop-Loss: {stop}")
 
-# ==============================
+# =====================================
 # ALERT LOG
-# ==============================
+# =====================================
 
 st.subheader("Live Alerts")
 st.write(alerts[-10:])
