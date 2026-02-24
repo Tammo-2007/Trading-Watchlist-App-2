@@ -2,14 +2,13 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import yaml
 import time
 import logging
 
 # ==============================
 # SETTINGS
 # ==============================
-CONFIG_FILE = "config.yaml"
+WATCHLIST = ["PLTR", "NVDA", "TSLA", "SMCI", "CSG.AS"]
 AUTO_REFRESH_SECONDS = 900  # 15 Minuten
 RISK_PERCENT_DEFAULT = 1.0
 
@@ -23,21 +22,6 @@ logging.basicConfig(
 )
 
 st.set_page_config(layout="wide", page_title="Trading Dashboard Pro")
-
-# ==============================
-# LOAD CONFIG
-# ==============================
-def load_config():
-    if not os.path.exists(CONFIG_FILE):
-        default_config = {"watchlist": ["PLTR", "NVDA", "TSLA", "SMCI", "CSG.AS"]}
-        with open(CONFIG_FILE, "w") as f:
-            yaml.dump(default_config, f)
-        return default_config["watchlist"]
-    with open(CONFIG_FILE, "r") as f:
-        cfg = yaml.safe_load(f)
-    return cfg.get("watchlist", [])
-
-WATCHLIST = load_config()
 
 # ==============================
 # AUTO REFRESH
