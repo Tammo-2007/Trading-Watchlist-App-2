@@ -16,8 +16,7 @@ if "portfolio" not in st.session_state:
 def load_data(ticker):
     try:
         df = yf.download(ticker, period="2y", interval="1d", auto_adjust=True, progress=False)
-        if df.empty:
-            return pd.DataFrame()
+        if df.empty: return pd.DataFrame()
         df = df.dropna(how="all")
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
@@ -42,7 +41,7 @@ def add_indicators(df):
     return df
 
 # --- Titel ---
-st.title("📊 Trading Dashboard Pro (Robust)")
+st.title("📊 Trading Dashboard Pro (Stabil)")
 
 # --- Watchlist verwalten ---
 with st.expander("🔧 Watchlist verwalten"):
