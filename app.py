@@ -1,230 +1,169 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import numpy as np
+import yfinance as yf
+import altair as alt
 
-st.set_page_config(layout="wide", page_title="Trading Dashboard Pro")
+st.set_page_config(layout="wide")
 
-# ==============================
-# SESSION STATE
-# ==============================
-DEFAULT_WATCHLIST = ["PLTR", "NVDA", "TSLA"]
-
-if "watchlist" not in st.session_state:
-    st.session_state.watchlist = DEFAULT_WATCHLIST.copy()
-
-if "portfolio" not in st.session_state:
-    st.session_state.portfolio = pd.DataFrame(
-        columns=["Ticker", "Kaufpreis", "Stückzahl"]
-    )
-
-# ==============================
-# DATA LOADER
-# ==============================
-@st.cache_data(ttl=900)
-def load_data(ticker):
-    try:
-        df = yf.download(
-            ticker,
-            period="2y",
-            interval="1d",
-            auto_adjust=True,
-            progress=False
-        )
-
-        if df.empty:
-            return pd.DataFrame()
-
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
-        df = df.dropna(how="all")
-        return df
-
-    except Exception:
-        return pd.DataFrame()
-
-# ==============================
-# INDICATORS
-# ==============================
-def add_indicators(df):
-    df = df.copy()
-    if df.empty:
-        return df
-
-    df["MA50"] = df["Close"].rolling(50).mean()
-    df["MA200"] = df["Close"].rolling(200).mean()
-
-    delta = df["Close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    df["RSI"] = 100 - (100 / (1 + rs))
-
-    df["GoldenCross"] = (
-        (df["MA50"] > df["MA200"]) &
-        (df["MA50"].shift(1) <= df["MA200"].shift(1))
-    ).fillna(False)
-
-    df["DeathCross"] = (
-        (df["MA50"] < df["MA200"]) &
-        (df["MA50"].shift(1) >= df["MA200"].shift(1))
-    ).fillna(False)
-
-    return df
-
-# ==============================
-# TITLE
-# ==============================
 st.title("📊 Trading Dashboard Pro")
 
-# ==============================
-# WATCHLIST MANAGEMENT
-# ==============================
-with st.expander("🔧 Watchlist verwalten"):
+# ---------------------------
+# SESSION INITIALISIERUNG
+# ---------------------------
 
-    new_ticker = st.text_input("Ticker hinzufügen")
+if "portfolio" not in st.session_state:
+    st.session_state.portfolio = pd.DataFrame(columns=[
+        "Ticker",
+        "Kaufpreis",
+        "Stückzahl",
+        "StopLoss",
+        "TakeProfit",
+        "Status"
+    ])
 
-    if st.button("Hinzufügen"):
-        ticker = new_ticker.upper()
-        if ticker and ticker not in st.session_state.watchlist:
-            st.session_state.watchlist.append(ticker)
-            st.success(f"{ticker} hinzugefügt")
+portfolio = st.session_state.portfolio
 
-    if st.session_state.watchlist:
-        remove = st.selectbox("Ticker löschen", st.session_state.watchlist)
-        if st.button("Löschen"):
-            st.session_state.watchlist.remove(remove)
-            st.success(f"{remove} gelöscht")
+# ---------------------------
+# AKTIE HINZUFÜGEN
+# ---------------------------
 
-# ==============================
-# WATCHLIST TABLE
-# ==============================
-st.subheader("📈 Watchlist Übersicht")
+st.subheader("🔧 Aktie hinzufügen")
 
-rows = []
+col1, col2, col3 = st.columns(3)
 
-for ticker in st.session_state.watchlist:
+ticker = col1.text_input("Ticker (z.B. RHM.DE)").upper()
+kaufpreis = col1.number_input("Kaufpreis €", min_value=1.0, step=0.01)
+stueck = col2.number_input("Stückzahl", min_value=1)
+stop = col2.number_input("Stop-Loss €", min_value=0.0, step=0.01)
+take = col3.number_input("Take-Profit €", min_value=0.0, step=0.01)
+status = col3.selectbox("Status", ["Besitzt", "Beobachtung"])
 
-    df = load_data(ticker)
+if st.button("Hinzufügen"):
 
-    if df.empty:
-        continue
+    if ticker == "":
+        st.error("Ticker fehlt")
+    else:
+        new_row = pd.DataFrame([{
+            "Ticker": ticker,
+            "Kaufpreis": kaufpreis,
+            "Stückzahl": stueck,
+            "StopLoss": stop,
+            "TakeProfit": take,
+            "Status": status
+        }])
 
-    df = add_indicators(df)
-    last = df.iloc[-1]
+        st.session_state.portfolio = pd.concat(
+            [portfolio, new_row],
+            ignore_index=True
+        )
 
-    perf_1m = (
-        (last["Close"] / df.iloc[-20]["Close"] - 1) * 100
-        if len(df) > 20 else np.nan
+        st.success(f"{ticker} hinzugefügt")
+        st.rerun()
+
+# ---------------------------
+# PORTFOLIO ANZEIGE + EDIT
+# ---------------------------
+
+st.subheader("📋 Portfolio")
+
+if not portfolio.empty:
+
+    edited_df = st.data_editor(
+        portfolio,
+        use_container_width=True,
+        num_rows="dynamic"
     )
 
-    rows.append({
-        "Ticker": ticker,
-        "Preis": round(last["Close"], 2),
-        "1M %": round(perf_1m, 2) if pd.notna(perf_1m) else None,
-        "RSI": round(last["RSI"], 2) if pd.notna(last["RSI"]) else None,
-        "Golden Cross": bool(last["GoldenCross"])
-    })
+    st.session_state.portfolio = edited_df
 
-if rows:
-    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    # Einzel löschen
+    delete_col1, delete_col2 = st.columns([3,1])
+
+    if delete_col2.button("⚠ Alles löschen"):
+        st.session_state.portfolio = pd.DataFrame(columns=portfolio.columns)
+        st.rerun()
+
+    # ---------------------------
+    # PERFORMANCE BERECHNUNG
+    # ---------------------------
+
+    total_value = 0
+    total_invest = 0
+
+    for i, row in edited_df.iterrows():
+        try:
+            live_price = yf.Ticker(row["Ticker"]).history(period="1d")["Close"].iloc[-1]
+            position_value = live_price * row["Stückzahl"]
+            invest = row["Kaufpreis"] * row["Stückzahl"]
+
+            total_value += position_value
+            total_invest += invest
+
+        except:
+            pass
+
+    profit = total_value - total_invest
+    perf = (profit / total_invest * 100) if total_invest > 0 else 0
+
+    colA, colB, colC = st.columns(3)
+
+    colA.metric("Depotwert", f"{total_value:,.2f} €")
+    colB.metric("Investiert", f"{total_invest:,.2f} €")
+    colC.metric("Gesamtgewinn", f"{profit:,.2f} €", f"{perf:.2f}%")
+
+    # ---------------------------
+    # CHART
+    # ---------------------------
+
+    st.subheader("📈 Kursverlauf")
+
+    selected = st.selectbox("Aktie wählen", edited_df["Ticker"].unique())
+
+    if selected:
+        try:
+            df_chart = yf.Ticker(selected).history(period="6mo")
+
+            if not df_chart.empty:
+
+                df_chart.reset_index(inplace=True)
+
+                base = alt.Chart(df_chart).mark_line().encode(
+                    x="Date:T",
+                    y="Close:Q"
+                )
+
+                st.altair_chart(base, use_container_width=True)
+
+            else:
+                st.warning("Keine Kursdaten verfügbar.")
+
+        except Exception as e:
+            st.error("Chart konnte nicht geladen werden.")
+
 else:
-    st.warning("Keine Daten in der Watchlist verfügbar")
+    st.info("Portfolio ist leer.")
 
-# ==============================
-# PORTFOLIO
-# ==============================
-st.subheader("💰 Portfolio")
+# ---------------------------
+# CSV EXPORT
+# ---------------------------
 
-with st.expander("Position hinzufügen"):
+st.subheader("💾 Export / Import")
 
-    if st.session_state.watchlist:
+col1, col2 = st.columns(2)
 
-        ticker = st.selectbox("Ticker", st.session_state.watchlist)
-        buy = st.number_input("Kaufpreis", value=0.0)
-        qty = st.number_input("Stückzahl", value=1)
+csv = st.session_state.portfolio.to_csv(index=False).encode("utf-8")
 
-        if st.button("Speichern"):
-            new_row = pd.DataFrame([{
-                "Ticker": ticker,
-                "Kaufpreis": buy,
-                "Stückzahl": qty
-            }])
+col1.download_button(
+    "Portfolio exportieren",
+    csv,
+    "portfolio.csv",
+    "text/csv"
+)
 
-            st.session_state.portfolio = pd.concat(
-                [st.session_state.portfolio, new_row],
-                ignore_index=True
-            )
-            st.success(f"{ticker} Position hinzugefügt")
+uploaded_file = col2.file_uploader("Portfolio importieren", type=["csv"])
 
-if not st.session_state.portfolio.empty:
-
-    pf = st.session_state.portfolio.copy()
-    pnl_list = []
-
-    for _, row in pf.iterrows():
-
-        df = load_data(row["Ticker"])
-
-        if df.empty:
-            pnl_list.append(0)
-            continue
-
-        current_price = df["Close"].iloc[-1]
-        pnl = (current_price - row["Kaufpreis"]) * row["Stückzahl"]
-        pnl_list.append(round(pnl, 2))
-
-    pf["PnL €"] = pnl_list
-    st.dataframe(pf, use_container_width=True)
-
-# ==============================
-# CHART
-# ==============================
-st.subheader("📊 Chart")
-
-if st.session_state.watchlist:
-
-    chart_ticker = st.selectbox("Ticker wählen", st.session_state.watchlist, key="chart_ticker")
-    df = load_data(chart_ticker)
-
-    if not df.empty:
-
-        df = add_indicators(df)
-        chart_df = df[["Close", "MA50", "MA200"]].dropna()
-        st.line_chart(chart_df)
-
-        st.subheader("RSI")
-        st.line_chart(df["RSI"].dropna().tail(100))
-
-    else:
-        st.warning("Keine Daten verfügbar")
-
-# ==============================
-# RISK CALCULATOR
-# ==============================
-st.subheader("⚖ Risiko Rechner")
-
-capital = st.number_input("Kapital", value=10000)
-risk_percent = st.slider("Risiko %", 0.5, 5.0, 1.0)
-
-if st.button("Berechnen"):
-
-    if not df.empty:
-
-        entry = df["Close"].iloc[-1]
-        swing_low = df["Low"].rolling(20).min().iloc[-1]
-
-        stop = swing_low * 0.98
-        risk_amount = capital * (risk_percent / 100)
-        risk_per_share = entry - stop
-
-        if risk_per_share > 0:
-            size = int(risk_amount / risk_per_share)
-            st.success(f"Positionsgröße: {size} Stück | Stop: {round(stop,2)}")
-        else:
-            st.error("Stop liegt über Entry")
+if uploaded_file:
+    df_import = pd.read_csv(uploaded_file)
+    st.session_state.portfolio = df_import
+    st.success("Portfolio importiert")
+    st.rerun()
