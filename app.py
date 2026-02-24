@@ -26,7 +26,7 @@ def load_data(ticker):
     try:
         df = yf.download(ticker, period="2y", interval="1d", auto_adjust=True, progress=False)
         if df.empty:
-            return df
+            return pd.DataFrame()
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df = df.dropna(how="all")
@@ -39,6 +39,9 @@ def load_data(ticker):
 # ==============================
 def add_indicators(df):
     df = df.copy()
+    if df.empty:
+        return df
+
     df["MA50"] = df["Close"].rolling(50).mean()
     df["MA200"] = df["Close"].rolling(200).mean()
     
@@ -93,10 +96,10 @@ for ticker in st.session_state.watchlist:
     perf_1m = ((last["Close"] / df.iloc[-20]["Close"] - 1) * 100) if len(df) > 20 else np.nan
     rows.append({
         "Ticker": ticker,
-        "Preis": round(last["Close"], 2),
+        "Preis": round(last["Close"], 2) if "Close" in last else None,
         "1M %": round(perf_1m, 2) if pd.notna(perf_1m) else None,
-        "RSI": round(last["RSI"], 2) if pd.notna(last["RSI"]) else None,
-        "Golden Cross": bool(last["GoldenCross"])
+        "RSI": round(last["RSI"], 2) if "RSI" in last and pd.notna(last["RSI"]) else None,
+        "Golden Cross": bool(last["GoldenCross"]) if "GoldenCross" in last else False
     })
 st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
@@ -123,7 +126,7 @@ if not st.session_state.portfolio.empty:
     pnl_list = []
     for _, row in pf.iterrows():
         df = load_data(row["Ticker"])
-        if df.empty:
+        if df.empty or "Close" not in df.columns:
             pnl_list.append(0)
             continue
         current_price = df["Close"].iloc[-1]
@@ -139,11 +142,17 @@ st.subheader("📊 Chart")
 if st.session_state.watchlist:
     chart_ticker = st.selectbox("Ticker wählen", st.session_state.watchlist, key="chart_select")
     df = load_data(chart_ticker)
-    if not df.empty:
+    if not df.empty and "Close" in df.columns:
         df = add_indicators(df)
-        st.line_chart(df[["Close", "MA50", "MA200"]].dropna())
-        st.subheader("RSI")
-        st.line_chart(df["RSI"].dropna().tail(100))
+        chart_cols = ["Close"]
+        if "MA50" in df.columns:
+            chart_cols.append("MA50")
+        if "MA200" in df.columns:
+            chart_cols.append("MA200")
+        st.line_chart(df[chart_cols].dropna())
+        if "RSI" in df.columns:
+            st.subheader("RSI")
+            st.line_chart(df["RSI"].dropna().tail(100))
     else:
         st.warning("Keine Daten verfügbar")
 
@@ -154,7 +163,7 @@ st.subheader("⚖ Risiko Rechner")
 capital = st.number_input("Kapital", value=10000)
 risk_percent = st.slider("Risiko %", 0.5, 5.0, 1.0)
 if st.button("Berechnen"):
-    if not df.empty:
+    if not df.empty and "Close" in df.columns and "Low" in df.columns:
         entry = df["Close"].iloc[-1]
         swing_low = df["Low"].rolling(20).min().iloc[-1]
         stop = swing_low * 0.98
