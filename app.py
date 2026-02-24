@@ -8,7 +8,7 @@ import logging
 # ==============================
 # SETTINGS
 # ==============================
-WATCHLIST = ["PLTR", "NVDA", "TSLA", "SMCI", "CSG.AS"]
+WATCHLIST_DEFAULT = ["PLTR", "NVDA", "TSLA", "SMCI", "CSG.AS"]
 AUTO_REFRESH_SECONDS = 900  # 15 Minuten
 RISK_PERCENT_DEFAULT = 1.0
 
@@ -28,10 +28,23 @@ st.set_page_config(layout="wide", page_title="Trading Dashboard Pro")
 # ==============================
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
-
 if time.time() - st.session_state.last_refresh > AUTO_REFRESH_SECONDS:
     st.session_state.last_refresh = time.time()
     st.experimental_rerun()
+
+# ==============================
+# SESSION STATE INITIALIZATION
+# ==============================
+if "watchlist" not in st.session_state:
+    st.session_state.watchlist = WATCHLIST_DEFAULT.copy()
+
+if "alerts" not in st.session_state:
+    st.session_state.alerts = []
+
+if "portfolio" not in st.session_state:
+    st.session_state.portfolio = pd.DataFrame(columns=[
+        "Ticker", "Kaufpreis", "Stückzahl", "StopLoss", "TakeProfit", "Status"
+    ])
 
 # ==============================
 # DATA LOADING & CACHING
@@ -101,43 +114,52 @@ dark = st.toggle("Dark Mode")
 if dark:
     st.markdown("<style>body{background-color:#0E1117;color:white;}</style>", unsafe_allow_html=True)
 
-# Alerts & Watchlist
-alerts = []
-watch_data = []
+# ==============================
+# WATCHLIST MANAGEMENT
+# ==============================
+with st.expander("🔧 Aktie hinzufügen / löschen"):
+    new_ticker = st.text_input("Neuer Ticker")
+    buy_price = st.number_input("Kaufpreis (€)", value=0.0)
+    qty = st.number_input("Stückzahl", min_value=1, value=1)
+    stop = st.number_input("Stop-Loss €", value=0.0)
+    take = st.number_input("Take-Profit €", value=0.0)
+    status = st.selectbox("Status", ["Besitzt", "Beobachtung"])
 
-for ticker in WATCHLIST:
-    daily, weekly = load_data(ticker)
-    if daily.empty:
-        continue
-    daily = calculate_indicators(daily)
-    current = daily.iloc[-1]
+    if st.button("Hinzufügen"):
+        st.session_state.portfolio = pd.concat([
+            st.session_state.portfolio,
+            pd.DataFrame([{
+                "Ticker": new_ticker.upper(),
+                "Kaufpreis": buy_price,
+                "Stückzahl": qty,
+                "StopLoss": stop,
+                "TakeProfit": take,
+                "Status": status
+            }])
+        ], ignore_index=True)
+        if new_ticker.upper() not in st.session_state.watchlist:
+            st.session_state.watchlist.append(new_ticker.upper())
+        st.success(f"{new_ticker.upper()} hinzugefügt!")
 
-    # Sicher prüfen auf NaN
-    if bool(current.get("GoldenCross", False)):
-        alerts.append(f"{ticker}: Golden Cross")
-    if pd.notna(current.get("RSI", np.nan)) and current["RSI"] < 30:
-        alerts.append(f"{ticker}: RSI Oversold")
+    del_ticker = st.selectbox("Ticker löschen", st.session_state.watchlist)
+    if st.button("Löschen"):
+        st.session_state.portfolio = st.session_state.portfolio[st.session_state.portfolio["Ticker"] != del_ticker]
+        st.session_state.watchlist = [t for t in st.session_state.watchlist if t != del_ticker]
+        st.success(f"{del_ticker} gelöscht!")
 
-    perf = ((current["Close"] / daily.iloc[-20]["Close"]) - 1) * 100 if len(daily) > 20 else np.nan
-
-    watch_data.append({
-        "Ticker": ticker,
-        "Price": round(current["Close"],2),
-        "RSI": round(current["RSI"],2) if pd.notna(current["RSI"]) else np.nan,
-        "MA Status": "Bullish" if pd.notna(current["MA50"]) and pd.notna(current["MA200"]) and current["MA50"] > current["MA200"] else "Bearish",
-        "1M %": round(perf,2)
-    })
-
-watch_df = pd.DataFrame(watch_data)
-st.subheader("Watchlist")
-st.dataframe(watch_df)
+# ==============================
+# PORTFOLIO TABLE
+# ==============================
+st.subheader("📋 Portfolio")
+st.dataframe(st.session_state.portfolio)
 
 # ==============================
 # CHARTS
 # ==============================
-ticker = st.selectbox("Ticker wählen", WATCHLIST)
-daily, weekly = load_data(ticker)
+chart_ticker = st.selectbox("Ticker wählen für Charts", st.session_state.watchlist)
+daily, weekly = load_data(chart_ticker)
 daily = calculate_indicators(daily)
+weekly = calculate_indicators(weekly)
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -165,7 +187,25 @@ if st.button("Berechne Position"):
     st.success(f"Positionsgröße: {size} Stück | Stop-Loss: {stop}")
 
 # ==============================
-# ALERT LOG
+# ALERTS
 # ==============================
 st.subheader("Live Alerts")
-st.write(alerts[-10:])
+st.session_state.alerts.clear()
+for ticker in st.session_state.watchlist:
+    daily, _ = load_data(ticker)
+    daily = calculate_indicators(daily)
+    current = daily.iloc[-1]
+
+    golden = current.get("GoldenCross")
+    if isinstance(golden, pd.Series):
+        golden = golden.iloc[-1] if len(golden) > 0 else False
+    if pd.notna(golden) and golden:
+        st.session_state.alerts.append(f"{ticker}: Golden Cross")
+
+    rsi = current.get("RSI")
+    if isinstance(rsi, pd.Series):
+        rsi = rsi.iloc[-1] if len(rsi) > 0 else np.nan
+    if pd.notna(rsi) and rsi < 30:
+        st.session_state.alerts.append(f"{ticker}: RSI Oversold")
+
+st.write(st.session_state.alerts[-10:])
