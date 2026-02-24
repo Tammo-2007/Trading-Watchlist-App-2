@@ -113,9 +113,9 @@ for ticker in WATCHLIST:
     current = daily.iloc[-1]
 
     # Sicher prüfen auf NaN
-    if pd.notna(current["GoldenCross"]) and current["GoldenCross"]:
+    if bool(current.get("GoldenCross", False)):
         alerts.append(f"{ticker}: Golden Cross")
-    if pd.notna(current["RSI"]) and current["RSI"] < 30:
+    if pd.notna(current.get("RSI", np.nan)) and current["RSI"] < 30:
         alerts.append(f"{ticker}: RSI Oversold")
 
     perf = ((current["Close"] / daily.iloc[-20]["Close"]) - 1) * 100 if len(daily) > 20 else np.nan
