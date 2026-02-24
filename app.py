@@ -49,8 +49,8 @@ def calculate_indicators(df):
     df = df.copy()
     df["MA50"] = df["Close"].rolling(50).mean()
     df["MA200"] = df["Close"].rolling(200).mean()
-    df["GoldenCross"] = (df["MA50"] > df["MA200"]) & (df["MA50"].shift(1) <= df["MA200"].shift(1))
-    df["DeathCross"] = (df["MA50"] < df["MA200"]) & (df["MA50"].shift(1) >= df["MA200"].shift(1))
+    df["GoldenCross"] = ((df["MA50"] > df["MA200"]) & (df["MA50"].shift(1) <= df["MA200"].shift(1)))
+    df["DeathCross"] = ((df["MA50"] < df["MA200"]) & (df["MA50"].shift(1) >= df["MA200"].shift(1)))
 
     delta = df["Close"].diff()
     gain = delta.clip(lower=0)
@@ -101,7 +101,7 @@ dark = st.toggle("Dark Mode")
 if dark:
     st.markdown("<style>body{background-color:#0E1117;color:white;}</style>", unsafe_allow_html=True)
 
-# Alerts
+# Alerts & Watchlist
 alerts = []
 watch_data = []
 
@@ -111,17 +111,21 @@ for ticker in WATCHLIST:
         continue
     daily = calculate_indicators(daily)
     current = daily.iloc[-1]
-    if current["GoldenCross"]:
+
+    # Sicher prüfen auf NaN
+    if pd.notna(current["GoldenCross"]) and current["GoldenCross"]:
         alerts.append(f"{ticker}: Golden Cross")
-    if current["RSI"] < 30:
+    if pd.notna(current["RSI"]) and current["RSI"] < 30:
         alerts.append(f"{ticker}: RSI Oversold")
+
     perf = ((current["Close"] / daily.iloc[-20]["Close"]) - 1) * 100 if len(daily) > 20 else np.nan
+
     watch_data.append({
         "Ticker": ticker,
-        "Price": round(current["Close"], 2),
-        "RSI": round(current["RSI"], 2),
-        "MA Status": "Bullish" if current["MA50"] > current["MA200"] else "Bearish",
-        "1M %": round(perf, 2)
+        "Price": round(current["Close"],2),
+        "RSI": round(current["RSI"],2) if pd.notna(current["RSI"]) else np.nan,
+        "MA Status": "Bullish" if pd.notna(current["MA50"]) and pd.notna(current["MA200"]) and current["MA50"] > current["MA200"] else "Bearish",
+        "1M %": round(perf,2)
     })
 
 watch_df = pd.DataFrame(watch_data)
