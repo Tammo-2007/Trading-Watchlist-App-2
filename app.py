@@ -2,7 +2,6 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="Trading Dashboard Pro")
 
@@ -20,7 +19,7 @@ if "portfolio" not in st.session_state:
     )
 
 # ==============================
-# DATA LOADER (Cloud-safe)
+# DATA LOADER
 # ==============================
 @st.cache_data(ttl=900)
 def load_data(ticker):
@@ -36,7 +35,6 @@ def load_data(ticker):
         if df.empty:
             return df
 
-        # MultiIndex fix
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
@@ -78,7 +76,7 @@ def add_indicators(df):
 st.title("📊 Trading Dashboard Pro")
 
 # ==============================
-# WATCHLIST MANAGEMENT
+# WATCHLIST
 # ==============================
 with st.expander("🔧 Watchlist verwalten"):
 
@@ -101,7 +99,7 @@ with st.expander("🔧 Watchlist verwalten"):
 # ==============================
 st.subheader("📈 Watchlist Übersicht")
 
-watch_rows = []
+rows = []
 
 for ticker in st.session_state.watchlist:
 
@@ -118,7 +116,7 @@ for ticker in st.session_state.watchlist:
         if len(df) > 20 else np.nan
     )
 
-    watch_rows.append({
+    rows.append({
         "Ticker": ticker,
         "Preis": round(last["Close"], 2),
         "1M %": round(perf_1m, 2) if pd.notna(perf_1m) else None,
@@ -126,7 +124,7 @@ for ticker in st.session_state.watchlist:
         "Golden Cross": bool(last["GoldenCross"])
     })
 
-st.dataframe(pd.DataFrame(watch_rows), use_container_width=True)
+st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
 # ==============================
 # PORTFOLIO
@@ -147,6 +145,7 @@ with st.expander("Position hinzufügen"):
                 "Kaufpreis": buy,
                 "Stückzahl": qty
             }])
+
             st.session_state.portfolio = pd.concat(
                 [st.session_state.portfolio, new_row],
                 ignore_index=True
@@ -173,7 +172,7 @@ if not st.session_state.portfolio.empty:
     st.dataframe(pf, use_container_width=True)
 
 # ==============================
-# CHART
+# CHART (Streamlit native)
 # ==============================
 st.subheader("📊 Chart")
 
@@ -186,40 +185,36 @@ if st.session_state.watchlist:
 
         df = add_indicators(df)
 
-        fig = go.Figure()
-
-        fig.add_trace(go.Candlestick(
-            x=df.index,
-            open=df["Open"],
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
-            name="Preis"
-        ))
-
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df["MA50"],
-            mode="lines",
-            name="MA50"
-        ))
-
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df["MA200"],
-            mode="lines",
-            name="MA200"
-        ))
-
-        fig.update_layout(
-            height=600,
-            xaxis_rangeslider_visible=False
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
+        chart_df = df[["Close", "MA50", "MA200"]].dropna()
+        st.line_chart(chart_df)
 
         st.subheader("RSI")
-        st.line_chart(df["RSI"].tail(100))
+        st.line_chart(df["RSI"].dropna().tail(100))
 
     else:
         st.warning("Keine Daten verfügbar")
+
+# ==============================
+# RISK CALCULATOR
+# ==============================
+st.subheader("⚖ Risiko Rechner")
+
+capital = st.number_input("Kapital", value=10000)
+risk_percent = st.slider("Risiko %", 0.5, 5.0, 1.0)
+
+if st.button("Berechnen"):
+
+    if not df.empty:
+
+        entry = df["Close"].iloc[-1]
+        swing_low = df["Low"].rolling(20).min().iloc[-1]
+
+        stop = swing_low * 0.98
+        risk_amount = capital * (risk_percent / 100)
+        risk_per_share = entry - stop
+
+        if risk_per_share > 0:
+            size = int(risk_amount / risk_per_share)
+            st.success(f"Positionsgröße: {size} Stück | Stop: {round(stop,2)}")
+        else:
+            st.error("Stop liegt über Entry")
