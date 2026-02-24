@@ -5,13 +5,13 @@ import numpy as np
 
 st.set_page_config(layout="wide", page_title="Trading Dashboard Pro")
 
-# --- Session State ---
+# --- SESSION STATE ---
 if "watchlist" not in st.session_state:
     st.session_state.watchlist = ["PLTR", "NVDA", "TSLA"]
 if "portfolio" not in st.session_state:
     st.session_state.portfolio = pd.DataFrame(columns=["Ticker","Kaufpreis","Stückzahl"])
 
-# --- Daten laden ---
+# --- DATEN LADEN ---
 @st.cache_data(ttl=900)
 def load_data(ticker):
     try:
@@ -24,7 +24,7 @@ def load_data(ticker):
     except:
         return pd.DataFrame()
 
-# --- Indikatoren ---
+# --- INDICATOREN ---
 def add_indicators(df):
     df = df.copy()
     if df.empty: return df
@@ -35,15 +35,15 @@ def add_indicators(df):
     loss = -delta.clip(upper=0)
     avg_gain = gain.rolling(14).mean()
     avg_loss = loss.rolling(14).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    df["RSI"] = 100 - (100 / (1 + rs))
-    df["GoldenCross"] = (df["MA50"] > df["MA200"]) & (df["MA50"].shift(1) <= df["MA200"].shift(1))
+    rs = avg_gain / avg_loss.replace(0,np.nan)
+    df["RSI"] = 100 - (100 / (1+rs))
+    df["GoldenCross"] = ((df["MA50"] > df["MA200"]) & (df["MA50"].shift(1) <= df["MA200"].shift(1)))
     return df
 
-# --- Titel ---
-st.title("📊 Trading Dashboard Pro (Stabil)")
+# --- TITEL ---
+st.title("📊 Trading Dashboard Pro (Ultra-stabil)")
 
-# --- Watchlist verwalten ---
+# --- WATCHLIST VERWALTEN ---
 with st.expander("🔧 Watchlist verwalten"):
     new_ticker = st.text_input("Ticker hinzufügen")
     if st.button("Hinzufügen"):
@@ -57,25 +57,26 @@ with st.expander("🔧 Watchlist verwalten"):
             st.session_state.watchlist.remove(remove)
             st.success(f"{remove} gelöscht")
 
-# --- Watchlist Tabelle ---
+# --- WATCHLIST TABLE ---
 st.subheader("📈 Watchlist Übersicht")
 rows = []
 for t in st.session_state.watchlist:
     df = load_data(t)
-    if df.empty: continue
+    if df.empty or "Close" not in df.columns: 
+        continue
     df = add_indicators(df)
-    last = df.iloc[-1]
-    perf_1m = ((last["Close"]/df.iloc[-20]["Close"] -1)*100) if len(df)>20 else np.nan
+    last = df.iloc[-1] if len(df) > 0 else None
+    perf_1m = ((last["Close"]/df.iloc[-20]["Close"]-1)*100) if len(df)>20 else np.nan
     rows.append({
         "Ticker": t,
-        "Preis": round(last["Close"],2) if "Close" in last else None,
+        "Preis": round(last["Close"],2) if last is not None else None,
         "1M %": round(perf_1m,2) if pd.notna(perf_1m) else None,
-        "RSI": round(last["RSI"],2) if "RSI" in last else None,
-        "GoldenCross": bool(last["GoldenCross"]) if "GoldenCross" in last else False
+        "RSI": round(last["RSI"],2) if last is not None else None,
+        "GoldenCross": bool(last["GoldenCross"]) if last is not None else False
     })
 st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
-# --- Portfolio ---
+# --- PORTFOLIO ---
 st.subheader("💰 Portfolio")
 with st.expander("Position hinzufügen"):
     if st.session_state.watchlist:
@@ -100,7 +101,7 @@ if not st.session_state.portfolio.empty:
     pf["PnL €"] = pnl_list
     st.dataframe(pf,use_container_width=True)
 
-# --- Chart ---
+# --- CHART ---
 st.subheader("📊 Chart")
 if st.session_state.watchlist:
     chart_ticker = st.selectbox("Ticker wählen", st.session_state.watchlist, key="chart")
