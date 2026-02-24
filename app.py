@@ -33,7 +33,7 @@ def load_data(ticker):
         )
 
         if df.empty:
-            return df
+            return pd.DataFrame()
 
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
@@ -49,6 +49,8 @@ def load_data(ticker):
 # ==============================
 def add_indicators(df):
     df = df.copy()
+    if df.empty:
+        return df
 
     df["MA50"] = df["Close"].rolling(50).mean()
     df["MA200"] = df["Close"].rolling(200).mean()
@@ -66,12 +68,12 @@ def add_indicators(df):
     df["GoldenCross"] = (
         (df["MA50"] > df["MA200"]) &
         (df["MA50"].shift(1) <= df["MA200"].shift(1))
-    )
+    ).fillna(False)
 
     df["DeathCross"] = (
         (df["MA50"] < df["MA200"]) &
         (df["MA50"].shift(1) >= df["MA200"].shift(1))
-    )
+    ).fillna(False)
 
     return df
 
@@ -129,7 +131,10 @@ for ticker in st.session_state.watchlist:
         "Golden Cross": bool(last["GoldenCross"])
     })
 
-st.dataframe(pd.DataFrame(rows), use_container_width=True)
+if rows:
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+else:
+    st.warning("Keine Daten in der Watchlist verfügbar")
 
 # ==============================
 # PORTFOLIO
@@ -184,7 +189,7 @@ st.subheader("📊 Chart")
 
 if st.session_state.watchlist:
 
-    chart_ticker = st.selectbox("Ticker wählen", st.session_state.watchlist)
+    chart_ticker = st.selectbox("Ticker wählen", st.session_state.watchlist, key="chart_ticker")
     df = load_data(chart_ticker)
 
     if not df.empty:
